@@ -1,0 +1,11 @@
+package com.github.noamm9.untitled
+
+import com.github.noamm9.NoammAddons
+import com.github.noamm9.features.impl.floor7.terminals.AutoTerminal
+import net.fabricmc.api.ClientModInitializer
+
+object Untitled: ClientModInitializer {
+    override fun onInitializeClient() {
+        NoammAddons.logger.info("Hi from ${this.javaClass.simpleName}!")
+    }
+}
