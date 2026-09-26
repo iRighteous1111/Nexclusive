@@ -1,4 +1,4 @@
-package com.github.noamm9.untitled.mixins;
+package com.github.noamm9.nexclusive.mixins;
 
 import com.github.noamm9.NoammAddons;
 import net.minecraft.client.Minecraft;
@@ -12,6 +12,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class MixinMinecraft {
     @Inject(method = "setLevel", at = @At("HEAD"))
     public void onSetLevel(ClientLevel clientLevel, CallbackInfo ci) {
-        NoammAddons.logger.info("Hi From Example Mixins");
+        NoammAddons.logger.info("Nexclusive: Level loaded.");
     }
 }

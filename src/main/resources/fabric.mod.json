@@ -1,24 +1,24 @@
 {
   "schemaVersion": 1,
-  "id": "untitled",
+  "id": "nexclusive",
   "version": "${version}",
-  "name": "untitled",
-  "description": "",
+  "name": "Nexclusive",
+  "description": "Nexclusive addon for Noamm Addons",
   "authors": [],
   "contact": {},
   "license": "All-Rights-Reserved",
-  "icon": "assets/untitled/icon.png",
+  "icon": "assets/nexclusive/icon.png",
   "environment": "client",
   "entrypoints": {
     "client": [
       {
-        "value": "com.github.noamm9.untitled.Untitled",
+        "value": "com.github.noamm9.nexclusive.Nexclusive",
         "adapter": "kotlin"
       }
     ]
   },
   "mixins": [
-    "untitled.mixins.json"
+    "nexclusive.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=${loader_version}",

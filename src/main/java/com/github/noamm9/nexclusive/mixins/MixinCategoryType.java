@@ -1,4 +1,4 @@
-package com.github.noamm9.untitled.mixins;
+package com.github.noamm9.nexclusive.mixins;
 
 import com.github.noamm9.NoammAddons;
 import com.github.noamm9.ui.clickgui.enums.CategoryType;
@@ -17,8 +17,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
-    Mixins to add a category to the config gui
-    String enumName = "UNTITLED";
+ * Mixin to inject the NEXCLUSIVE category into Noamm Addons CategoryType enum.
  */
 @Mixin(CategoryType.class)
 public class MixinCategoryType {
@@ -33,7 +32,7 @@ public class MixinCategoryType {
             unsafeField.setAccessible(true);
             Unsafe unsafe = (Unsafe) unsafeField.get(null);
 
-            String enumName = "UNTITLED";
+            String enumName = "NEXCLUSIVE";
             ArrayList<CategoryType> valuesList = new ArrayList<>(Arrays.asList($VALUES));
             int newOrdinal = valuesList.size();
 
@@ -59,7 +58,7 @@ public class MixinCategoryType {
             var newEntries = EnumEntriesKt.enumEntries(newValuesArray);
             unsafe.putObject(base, offset, newEntries);
         } catch (Exception e) {
-            NoammAddons.logger.error("Error while adding custom category type", e);
+            NoammAddons.logger.error("Error while adding NEXCLUSIVE category type", e);
             e.printStackTrace();
         }
     }

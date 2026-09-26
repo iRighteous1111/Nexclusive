@@ -1,0 +1,10 @@
+package com.github.noamm9.nexclusive
+
+import com.github.noamm9.NoammAddons
+import net.fabricmc.api.ClientModInitializer
+
+object Nexclusive : ClientModInitializer {
+    override fun onInitializeClient() {
+        NoammAddons.logger.info("Initialized ${this.javaClass.simpleName} addon!")
+    }
+}
