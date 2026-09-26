@@ -1,9 +1,6 @@
-# NoammAddons's Addon Mod Template
+ss aim helper is not in good condition i have better algorithm in my mind but i cba 
 
-### Project-Specific Notes
-- In gradle.properties, set noammaddons-version to the version you want to build upon.
-- The Mod is configured with Mojang Mappings.
+i vibecoded this shit on 5 am
 
-### How to use
-1. Click the **"Use this template"** button above.
-2. Clone your new repository.
+ott probably doesnt work lmao
+
