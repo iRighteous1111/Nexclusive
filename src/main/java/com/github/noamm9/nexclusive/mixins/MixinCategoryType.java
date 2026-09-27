@@ -16,9 +16,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-/**
- * Mixin to inject the NEXCLUSIVE category into Noamm Addons CategoryType enum.
- */
+// CategoryType ships compiled inside NoammAddons, so the only way to add our own category is patching its $VALUES/$ENTRIES via Unsafe.
 @Mixin(CategoryType.class)
 public class MixinCategoryType {
 

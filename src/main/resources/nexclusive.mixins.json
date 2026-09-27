@@ -7,18 +7,9 @@
     "MixinCategoryType"
   ],
   "client": [
-    "MixinMinecraft",
     "MixinGuiMessage",
     "MixinGuiMessageLine",
     "MixinChatComponent",
-    "accessors.IClientPacketListenerInvoker",
-    "accessors.IEntityInvoker",
-    "accessors.IKeyMappingAccessor",
-    "accessors.IMinecraftAccessor",
-    "MixinLowestPriorityConnection",
-    "MixinLowPriorityConnection",
-    "MixinKeyMapping",
-    "MixinMinecraftOffTick",
     "MixinMouseHandler"
   ],
   "injectors": {
