@@ -18,6 +18,7 @@ import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.Render2D.drawAnnularSegment
 import com.github.noamm9.utils.render.RenderHelper.renderVec
 import net.minecraft.core.BlockPos
+import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.AABB
 import net.minecraft.world.phys.BlockHitResult
 import net.minecraft.world.phys.HitResult
@@ -168,20 +169,38 @@ object SSAimHelper : Feature(
         return getSolutionList()?.firstOrNull()
     }
 
+    private val buttonCheckPos = BlockPos(110, 120, 93)
+
+    /**
+     * Checks if Simon Says buttons are currently spawned in the world (clicking phase).
+     * During the sea lantern demonstration phase, the buttons are AIR.
+     */
+    fun isDeviceInClickingPhase(): Boolean {
+        val level = mc.level ?: return false
+        return level.getBlockState(buttonCheckPos).block == Blocks.STONE_BUTTON
+    }
+
     /**
      * Retrieves the current valid button to press from Noamm's SimonSays solver.
-     * Returns null if SimonSays is disabled, empty, or inaccessible.
+     * Returns null if SimonSays is disabled, empty, inaccessible, or if the device
+     * is currently in the sea lantern demonstration phase (buttons not spawned).
      */
     fun getValidButton(): BlockPos? {
+        if (!isDeviceInClickingPhase()) return null
         val first = getValidSSButton() ?: return null
-        return runCatching {
+        val pos = runCatching {
             if (buttonFieldCache == null) {
                 buttonFieldCache = first.javaClass.getDeclaredField("button").apply {
                     isAccessible = true
                 }
             }
             buttonFieldCache?.get(first) as? BlockPos
-        }.getOrNull()
+        }.getOrNull() ?: return null
+
+        val level = mc.level ?: return null
+        if (level.getBlockState(pos).block != Blocks.STONE_BUTTON) return null
+
+        return pos
     }
 
     fun markTargetClicked() {
@@ -299,7 +318,7 @@ object SSAimHelper : Feature(
      */
     fun shouldSuppressMouseInput(dx: Double, dy: Double): Boolean {
         if (!enabled) return false
-        if (mc.screen != null || !SimonSays.enabled || !isAtSSDevice()) {
+        if (mc.screen != null || !SimonSays.enabled || !isAtSSDevice() || !isDeviceInClickingPhase()) {
             isThresholdLocking = false
             redirectActive = false
             buttonInCircleTime = 0L
@@ -534,6 +553,10 @@ object SSAimHelper : Feature(
             if (mc.screen != null) return@register
             if (!SimonSays.enabled) return@register
             if (!isAtSSDevice()) return@register
+            if (!isDeviceInClickingPhase()) {
+                resetAimState()
+                return@register
+            }
 
             val targetButton = getValidButton()
             if (targetButton == null) {
