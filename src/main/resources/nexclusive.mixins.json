@@ -18,7 +18,8 @@
     "MixinLowestPriorityConnection",
     "MixinLowPriorityConnection",
     "MixinKeyMapping",
-    "MixinMinecraftOffTick"
+    "MixinMinecraftOffTick",
+    "MixinMouseHandler"
   ],
   "injectors": {
     "defaultRequire": 1
