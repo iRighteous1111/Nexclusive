@@ -110,7 +110,6 @@ object SSAimHelper: Feature(
     private var hitboxHoverStartTime = 0L
 
     private var redirectActive = false
-    private var redirectStartTime = 0L
     private var redirectCurrentSpeed = 0f
     private var recentMaxSpeed = 0f
     private var recentSpeedTime = 0L
@@ -194,10 +193,7 @@ object SSAimHelper: Feature(
                     redirectActive = false
                     return false
                 }
-                if (redirectActive) {
-                    if (now - redirectStartTime <= 800L) return true
-                    redirectActive = false
-                }
+                if (redirectActive) return true
                 val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: return false
                 val dist = hypot(screenPos.x.toDouble() - (Resolution.width / 2.0), screenPos.y.toDouble() - (Resolution.height / 2.0))
                 if (dist <= helperRadius.value.toDouble()) return true
@@ -362,7 +358,6 @@ object SSAimHelper: Feature(
                 3 -> {
                     if (! redirectActive) {
                         redirectActive = true
-                        redirectStartTime = now
                         val flick = max(recentMaxSpeed, minimumSpeed.value.toFloat())
                         redirectCurrentSpeed = (flick * speedMultiplier.value.toFloat()).coerceIn(
                             minimumSpeed.value.toFloat(),
@@ -371,13 +366,8 @@ object SSAimHelper: Feature(
                     }
 
                     if (now - lastPhysicalMouseMoveTime < 60L && lastPhysicalMouseDelta > 2.0) {
-                        val boost = (lastPhysicalMouseDelta * 25.0 * speedMultiplier.value).toFloat()
-                        redirectCurrentSpeed = max(redirectCurrentSpeed, boost).coerceAtMost(maxSpeed.value.toFloat())
-                    }
-
-                    if (now - redirectStartTime > 800L) {
-                        redirectActive = false
-                        return@register
+                        val liveSpeed = (lastPhysicalMouseDelta * 25.0 * speedMultiplier.value).toFloat()
+                        redirectCurrentSpeed = liveSpeed.coerceIn(minimumSpeed.value.toFloat(), maxSpeed.value.toFloat())
                     }
 
                     if (smoothFinish.value) {
@@ -419,7 +409,6 @@ object SSAimHelper: Feature(
         isThresholdLocking = false
         buttonInCircleTime = 0L
         redirectActive = false
-        redirectStartTime = 0L
         hitboxHoverStartTime = 0L
     }
 

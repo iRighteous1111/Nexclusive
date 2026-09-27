@@ -17,6 +17,9 @@ public class MixinMouseHandler {
     @Inject(method = "turnPlayer", at = @At("HEAD"), cancellable = true)
     private void onTurnPlayer(double movementTime, CallbackInfo ci) {
         if (SSAimHelper.INSTANCE.shouldSuppressMouseInput(this.accumulatedDX, this.accumulatedDY)) {
+            // Cancelling skips vanilla's own accumulatedDX/DY reset, so the real movement would pile up and dump as one big jump once suppression ends.
+            this.accumulatedDX = 0.0;
+            this.accumulatedDY = 0.0;
             ci.cancel();
         }
     }
