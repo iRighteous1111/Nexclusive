@@ -1,6 +1,7 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive
 
 import com.github.noamm9.config.types.ColorSetting
+import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
 import com.github.noamm9.event.impl.MouseClickEvent
@@ -29,72 +30,71 @@ import kotlin.math.*
 
 object SSAimHelper : Feature(
     name = "SS Aim Helper",
-    description = "Automatically aims at the valid Simon Says button within the circle radius."
+    description = "Assists with Simon Says device solving using customizable aim modes."
 ) {
     val INSTANCE = this
 
+    private val mode by DropdownSetting(
+        "Mode", 0, listOf("Classic Helper", "Threshold Lock", "Stop Movement", "Redirect Mode")
+    ).withDescription("Select the Simon Says aim assistance mode.")
+
+    // Circle Settings (visible for modes using circle: Classic Helper, Threshold Lock, Redirect Mode)
     private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px")
         .section("Aim Radius")
+        .showIf { mode.value != 2 }
         .withDescription("Radius of the circle on screen to detect the valid Simon Says button.")
 
     private val drawCircle by ToggleSetting("Draw Circle", true)
+        .showIf { mode.value != 2 }
         .withDescription("Draws the detection circle centered on your crosshair.")
 
     private val circleColor by ColorSetting("Circle Color", Color(0, 255, 255), true)
+        .showIf { mode.value != 2 && drawCircle.value }
         .withDescription("Color of the on-screen circle.")
-        .showIf { drawCircle.value }
 
-    private val rotationSpeed by SliderSetting("Rotation Speed", 10.0, 1.0, 50.0, 0.1)
-        .section("Aim Speed")
+    // Mode 0: Classic Helper Settings
+    private val classicRotationSpeed by SliderSetting("Classic Rotation Speed", 12.0, 1.0, 50.0, 0.5)
+        .section("Classic Helper Settings")
+        .showIf { mode.value == 0 }
         .withDescription("Speed at which your crosshair rotates towards the button.")
 
-    private val thresholdLockMode by ToggleSetting("Threshold Lock Mode", false)
-        .section("Threshold Lock")
-        .withDescription("Cuts mouse input and locks aim onto the button when crosshair is off the hitbox, within the circle, and mouse is idle or moving slowly.")
-
+    // Mode 1: Threshold Lock Settings
     private val lockThreshold by SliderSetting("Lock Threshold", 3.5, 0.5, 10.0, 0.5, "px")
-        .showIf { thresholdLockMode.value }
+        .section("Threshold Lock Settings")
+        .showIf { mode.value == 1 }
         .withDescription("Maximum mouse movement speed to trigger threshold lock.")
 
-    private val aimCenter by ToggleSetting("Aim Center", false)
-        .section("Aim Point")
-        .withDescription("Aims at the closest point of the button hitbox rather than forcing center aim, stopping immediately upon entering the hitbox.")
+    private val thresholdRotationSpeed by SliderSetting("Threshold Rotation Speed", 15.0, 1.0, 50.0, 0.5)
+        .showIf { mode.value == 1 }
+        .withDescription("Speed at which your crosshair rotates towards the button during threshold lock.")
 
-    private val offCenter by SliderSetting("OFF Center", 50, 0, 100, 5, "%")
-        .showIf { aimCenter.value }
-        .withDescription("Distance from center towards the edge. 0 = exact center, 100 = closest outer edge of hitbox.")
+    // Mode 2: Stop Movement Settings
+    private val stopDuration by SliderSetting("Stop Duration", 200, 20, 1000, 10, "ms")
+        .section("Stop Movement Settings")
+        .showIf { mode.value == 2 }
+        .withDescription("Duration to cut mouse input while hovering over the button hitbox.")
 
-    private val stopMouseMovement by ToggleSetting("Stop Mouse Movement", false)
-        .section("Mouse Movement Control")
-        .withDescription("Stops mouse movement and aims back when passing/overshooting the correct button.")
+    private val stopDelay by SliderSetting("Stop Delay", 10, 0, 200, 5, "ms")
+        .showIf { mode.value == 2 }
+        .withDescription("Delay after looking at the button before stopping mouse movement.")
 
-    private val stopDuration by SliderSetting("Stop Duration", 200, 50, 1000, 10, "ms")
-        .showIf { stopMouseMovement.value }
-        .withDescription("Maximum duration to cut mouse input when overshooting past the button.")
+    // Mode 3: Redirect Mode Settings
+    private val smoothFinish by ToggleSetting("Smooth Finish", true)
+        .section("Redirect Mode Settings")
+        .showIf { mode.value == 3 }
+        .withDescription("Gradually decelerates the crosshair as it nears the button to prevent abrupt stopping.")
 
-    private val redirectFixMode by ToggleSetting("Redirect Fix Mode", true)
-        .showIf { stopMouseMovement.value }
-        .withDescription("Catches and corrects overshoot if the crosshair quickly passes the button.")
+    private val finishDeceleration by SliderSetting("Finish Deceleration", 30.0, 5.0, 80.0, 1.0)
+        .showIf { mode.value == 3 && smoothFinish.value }
+        .withDescription("Deceleration rate when smoothly finishing aim on the button.")
 
-    private val overshootDistance by SliderSetting("Overshoot Distance", 120, 20, 300, 5, "px")
-        .showIf { stopMouseMovement.value && redirectFixMode.value }
-        .withDescription("Maximum screen pixel distance from the button where overshoot correction triggers.")
+    private val speedMultiplier by SliderSetting("Speed Multiplier", 1.0, 0.2, 3.0, 0.1, "x")
+        .showIf { mode.value == 3 }
+        .withDescription("Multiplier applied to your mouse flick speed for redirection.")
 
-    private val smoothMovement by ToggleSetting("Smooth Movement", true)
-        .showIf { stopMouseMovement.value && redirectFixMode.value }
-        .withDescription("Smoothly decelerates to a stop, then accelerates and decelerates back onto the button.")
-
-    private val stopDeceleration by SliderSetting("Deceleration (Braking)", 20.0, 5.0, 60.0, 1.0)
-        .showIf { stopMouseMovement.value && redirectFixMode.value && smoothMovement.value }
-        .withDescription("Braking deceleration rate before reversing towards the button.")
-
-    private val returnAcceleration by SliderSetting("Return Acceleration", 25.0, 5.0, 80.0, 1.0)
-        .showIf { stopMouseMovement.value && redirectFixMode.value && smoothMovement.value }
-        .withDescription("Acceleration rate when starting to pull back towards the button.")
-
-    private val returnMaxSpeed by SliderSetting("Return Max Speed", 35.0, 10.0, 100.0, 1.0)
-        .showIf { stopMouseMovement.value && redirectFixMode.value && smoothMovement.value }
-        .withDescription("Maximum speed during the return correction glide.")
+    private val minimumSpeed by SliderSetting("Minimum Speed", 15.0, 5.0, 50.0, 1.0, "°/s")
+        .showIf { mode.value == 3 }
+        .withDescription("Minimum rotation speed towards the button if flick was slow.")
 
     private val deviceCenter = Vec3(110.5, 121.5, 93.5)
 
@@ -113,26 +113,19 @@ object SSAimHelper : Feature(
     var isThresholdLocking = false
         private set
 
-    enum class RedirectState {
-        IDLE,
-        DECELERATING,
-        RETURNING
-    }
+    // Stop Movement state
+    private var hitboxHoverStartTime = 0L
 
-    private var redirectState = RedirectState.IDLE
+    // Redirect Mode state
+    private var redirectActive = false
     private var redirectStartTime = 0L
-    private var lastOnHitboxTime = 0L
-    private var wasOnHitbox = false
-    private var minScreenDistRecent = 9999.0
-    private var lastDistTime = 0L
+    private var redirectCurrentSpeed = 0f
+    private var recentSpeed = 0f
 
     private var prevYaw = 0f
     private var prevPitch = 0f
-    private var currentDecelVelYaw = 0f
-    private var currentDecelVelPitch = 0f
-    private var currentReturnSpeed = 0f
 
-    // Click tracking to eliminate sequence transition latency
+    // Click tracking to eliminate transition latency
     private var clickedSSButton: Any? = null
     private var clickedButtonPos: BlockPos? = null
     private var clickedSolutionSize = -1
@@ -181,10 +174,9 @@ object SSAimHelper : Feature(
         clickedSolutionSize = getSolutionList()?.size ?: -1
         clickTime = System.currentTimeMillis()
 
-        redirectState = RedirectState.IDLE
         isThresholdLocking = false
-        lastOnHitboxTime = 0L
-        wasOnHitbox = false
+        hitboxHoverStartTime = 0L
+        redirectActive = false
         hasAimed = false
     }
 
@@ -202,7 +194,7 @@ object SSAimHelper : Feature(
         val currentObj = currentList.firstOrNull() ?: return false
         val currentPos = getValidButton() ?: return false
 
-        // If solution list shrank or head changed, Simon Says advanced to the next button!
+        // If solution list shrank or head changed, Simon Says advanced to next button!
         if (currentList.size != clickedSolutionSize || currentObj !== clickedSSButton) {
             clickedSSButton = null
             clickedButtonPos = null
@@ -240,91 +232,59 @@ object SSAimHelper : Feature(
     }
 
     /**
-     * Calculates the target 3D world point on the button.
-     * When [aimCenter] is enabled, dynamically shifts the target towards the point on the hitbox
-     * closest to the player's crosshair, scaled by [offCenter].
+     * Calculates the target 3D world point on the button (near center of hitbox).
      */
     fun getTargetPoint(targetButton: BlockPos): Vec3 {
-        val centerX = targetButton.x + 0.9
-        val centerY = targetButton.y + 0.5
-        val centerZ = targetButton.z + 0.5
-
-        if (!aimCenter.value) {
-            return Vec3(centerX, centerY, centerZ)
-        }
-
-        val player = mc.player ?: return Vec3(centerX, centerY, centerZ)
-        val eyePos = player.eyePosition
-        val lookVec = player.lookAngle
-
-        if (abs(lookVec.x) < 1e-5) {
-            return Vec3(centerX, centerY, centerZ)
-        }
-
-        val t = (centerX - eyePos.x) / lookVec.x
-        if (t <= 0.0) {
-            return Vec3(centerX, centerY, centerZ)
-        }
-
-        val hitY = eyePos.y + t * lookVec.y
-        val hitZ = eyePos.z + t * lookVec.z
-
-        val diffY = hitY - centerY
-        val diffZ = hitZ - centerZ
-
-        val ratio = (offCenter.value / 100.0).coerceIn(0.0, 1.0)
-        val maxOffsetY = 0.125 * 0.80 * ratio
-        val maxOffsetZ = 0.1875 * 0.80 * ratio
-
-        val targetY = centerY + diffY.coerceIn(-maxOffsetY, maxOffsetY)
-        val targetZ = centerZ + diffZ.coerceIn(-maxOffsetZ, maxOffsetZ)
-
-        return Vec3(centerX, targetY, targetZ)
+        return Vec3(targetButton.x + 0.9, targetButton.y + 0.5, targetButton.z + 0.5)
     }
 
     /**
      * Determines whether user mouse movement should be cut off in [MouseHandler.turnPlayer].
-     * Suppresses mouse input when:
-     * 1. Overshoot Stop / Redirect Fix is actively decelerating or returning to the button.
-     * 2. Threshold Lock Mode is active, crosshair is off hitbox, within circle, and mouse is slow/still.
-     *
-     * When crosshair is looking at the button hitbox, mouse movement is NEVER suppressed!
      */
     fun shouldSuppressMouseInput(dx: Double, dy: Double): Boolean {
         if (!enabled) return false
         if (mc.screen != null || !SimonSays.enabled || !isAtSSDevice()) {
             isThresholdLocking = false
+            redirectActive = false
             return false
         }
 
         val targetButton = getValidButton() ?: return false
         if (isCurrentTargetClicked()) {
-            return false
-        }
-
-        // 1. If currently on the button hitbox: NEVER suppress mouse movement!
-        // "doğru butonun üzerindeyse bir şeyi engellemeye çalışmasın"
-        if (isLookingAtButton(targetButton)) {
+            isThresholdLocking = false
+            redirectActive = false
             return false
         }
 
         val now = System.currentTimeMillis()
+        val onHitbox = isLookingAtButton(targetButton)
 
-        // 2. If actively correcting an overshoot (Stop Mouse Movement / Redirect Fix)
-        if (stopMouseMovement.value && redirectState != RedirectState.IDLE) {
-            val maxDuration = max(stopDuration.value.toLong(), 200L)
-            if (now - redirectStartTime <= maxDuration) {
-                return true
-            } else {
-                redirectState = RedirectState.IDLE
+        when (mode.value) {
+            // Mode 0: Classic Helper
+            0 -> {
+                if (onHitbox || hasAimed) return false
+                val targetVec = getTargetPoint(targetButton)
+                val screenPos = worldToScreen(targetVec) ?: return false
+                val screenDist = hypot(
+                    screenPos.x.toDouble() - (Resolution.width / 2.0),
+                    screenPos.y.toDouble() - (Resolution.height / 2.0)
+                )
+                if (screenDist <= helperRadius.value.toDouble()) {
+                    return true
+                }
             }
-        }
 
-        // 3. Threshold Lock Mode
-        if (thresholdLockMode.value) {
-            val targetVec = getTargetPoint(targetButton)
-            val screenPos = worldToScreen(targetVec)
-            if (screenPos != null) {
+            // Mode 1: Threshold Lock
+            1 -> {
+                if (onHitbox || hasAimed) {
+                    isThresholdLocking = false
+                    return false
+                }
+                val targetVec = getTargetPoint(targetButton)
+                val screenPos = worldToScreen(targetVec) ?: run {
+                    isThresholdLocking = false
+                    return false
+                }
                 val screenDist = hypot(
                     screenPos.x.toDouble() - (Resolution.width / 2.0),
                     screenPos.y.toDouble() - (Resolution.height / 2.0)
@@ -337,8 +297,47 @@ object SSAimHelper : Feature(
                 } else {
                     isThresholdLocking = false
                 }
-            } else {
-                isThresholdLocking = false
+            }
+
+            // Mode 2: Stop Movement
+            2 -> {
+                if (onHitbox) {
+                    if (hitboxHoverStartTime == 0L) {
+                        hitboxHoverStartTime = now
+                    }
+                    val elapsed = now - hitboxHoverStartTime
+                    val delay = stopDelay.value.toLong()
+                    val duration = stopDuration.value.toLong()
+                    if (elapsed >= delay && elapsed <= delay + duration) {
+                        return true
+                    }
+                } else {
+                    hitboxHoverStartTime = 0L
+                }
+            }
+
+            // Mode 3: Redirect Mode
+            3 -> {
+                if (onHitbox || hasAimed) {
+                    redirectActive = false
+                    return false
+                }
+                if (redirectActive) {
+                    if (now - redirectStartTime <= 600L) {
+                        return true
+                    } else {
+                        redirectActive = false
+                    }
+                }
+                val targetVec = getTargetPoint(targetButton)
+                val screenPos = worldToScreen(targetVec) ?: return false
+                val screenDist = hypot(
+                    screenPos.x.toDouble() - (Resolution.width / 2.0),
+                    screenPos.y.toDouble() - (Resolution.height / 2.0)
+                )
+                if (screenDist <= helperRadius.value.toDouble()) {
+                    return true
+                }
             }
         }
 
@@ -422,9 +421,10 @@ object SSAimHelper : Feature(
             }
         }
 
-        // Draw the client-side circle overlay on screen only when at the SS device (or in ClickGUI for preview)
+        // Draw the client-side circle overlay (not drawn for Mode 2: Stop Movement)
         register<RenderOverlayEvent> {
             if (!SimonSays.enabled) return@register
+            if (mode.value == 2) return@register
             if (!drawCircle.value) return@register
 
             val inGui = mc.screen != null
@@ -449,7 +449,7 @@ object SSAimHelper : Feature(
             Resolution.pop(event.context)
         }
 
-        // Handle smooth mouse aim assist, stop movement, and redirect fix towards the valid button
+        // Handle aim assist logic per selected mode
         register<RenderWorldEvent> {
             if (mc.screen != null) return@register
             if (!SimonSays.enabled) return@register
@@ -468,9 +468,9 @@ object SSAimHelper : Feature(
             val currentYaw = player.yRot
             val currentPitch = player.xRot
 
-            // Calculate rotational velocity (degrees per second)
             val velYaw = if (dt > 0.0) MathUtils.normalizeYaw(currentYaw - prevYaw) / dt.toFloat() else 0f
             val velPitch = if (dt > 0.0) MathUtils.normalizePitch(currentPitch - prevPitch) / dt.toFloat() else 0f
+            val currentRotSpeed = hypot(velYaw.toDouble(), velPitch.toDouble()).toFloat()
             prevYaw = currentYaw
             prevPitch = currentPitch
 
@@ -478,12 +478,10 @@ object SSAimHelper : Feature(
             if (targetButton != lastTargetPos) {
                 lastTargetPos = targetButton
                 hasAimed = false
-                redirectState = RedirectState.IDLE
+                isThresholdLocking = false
+                redirectActive = false
                 redirectStartTime = 0L
-                lastOnHitboxTime = 0L
-                wasOnHitbox = false
-                minScreenDistRecent = 9999.0
-                lastDistTime = now
+                hitboxHoverStartTime = 0L
                 clickedSSButton = null
                 clickedButtonPos = null
                 clickedSolutionSize = -1
@@ -496,219 +494,158 @@ object SSAimHelper : Feature(
                 markTargetClicked()
             }
 
-            // If current button was already clicked, do not aim or pull back to it.
-            // Allow the player to freely flick towards the next button without resistance!
+            // If current button was already clicked, do not aim or pull back to it
             if (isCurrentTargetClicked()) {
-                redirectState = RedirectState.IDLE
+                isThresholdLocking = false
+                redirectActive = false
+                return@register
+            }
+
+            // ----------------------------------------------------
+            // MODE 2: STOP MOVEMENT (No aim assist, only hover tracking)
+            // ----------------------------------------------------
+            if (mode.value == 2) {
+                if (onHitbox) {
+                    if (hitboxHoverStartTime == 0L) {
+                        hitboxHoverStartTime = now
+                    }
+                } else {
+                    hitboxHoverStartTime = 0L
+                }
+                return@register
+            }
+
+            // If already on hitbox or already aimed at this button, stop aiming
+            if (onHitbox) {
+                hasAimed = true
+                isThresholdLocking = false
+                redirectActive = false
+                return@register
+            }
+
+            if (hasAimed && mode.value != 1) {
+                return@register
+            }
+
+            val targetVec = getTargetPoint(targetButton)
+            val screenPos = worldToScreen(targetVec) ?: run {
+                redirectActive = false
                 isThresholdLocking = false
                 return@register
             }
 
-            if (onHitbox) {
-                lastOnHitboxTime = now
-                wasOnHitbox = true
-                redirectState = RedirectState.IDLE
-            }
+            val screenDist = hypot(
+                screenPos.x.toDouble() - (Resolution.width / 2.0),
+                screenPos.y.toDouble() - (Resolution.height / 2.0)
+            )
 
-            // Track recent minimum screen distance to the button for overshoot detection
-            val currentTargetVec = getTargetPoint(targetButton)
-            val currentScreenPos = worldToScreen(currentTargetVec)
-            val currentScreenDist = if (currentScreenPos != null) {
-                hypot(
-                    currentScreenPos.x.toDouble() - (Resolution.width / 2.0),
-                    currentScreenPos.y.toDouble() - (Resolution.height / 2.0)
-                )
-            } else 9999.0
-
-            if (now - lastDistTime > 400L) {
-                minScreenDistRecent = currentScreenDist
-                lastDistTime = now
-            } else {
-                minScreenDistRecent = min(minScreenDistRecent, currentScreenDist)
-            }
-
-            // Check if overshoot stop / redirect fix should trigger (crosshair passed the button without clicking)
-            if (!onHitbox && stopMouseMovement.value && redirectState == RedirectState.IDLE) {
-                val wasRecentlyNear = wasOnHitbox || (now - lastOnHitboxTime) <= 300L || minScreenDistRecent <= 40.0
-                if (wasRecentlyNear && currentScreenDist <= overshootDistance.value.toDouble()) {
-                    redirectStartTime = now
-                    wasOnHitbox = false
-                    if (redirectFixMode.value && smoothMovement.value) {
-                        redirectState = RedirectState.DECELERATING
-                        currentDecelVelYaw = velYaw
-                        currentDecelVelPitch = velPitch
-                        currentReturnSpeed = 0f
-                    } else {
-                        redirectState = RedirectState.RETURNING
-                        currentReturnSpeed = 0f
-                    }
-                }
-            }
-
-            // Timeout safety for redirect state so the player never gets stuck
-            if (redirectState != RedirectState.IDLE) {
-                val maxDuration = max(stopDuration.value.toLong(), 200L)
-                if (now - redirectStartTime > maxDuration || currentScreenDist > helperRadius.value * 1.5) {
-                    redirectState = RedirectState.IDLE
-                }
-            }
-
-            // ----------------------------------------------------
-            // REDIRECT FIX: Smooth Deceleration Phase
-            // ----------------------------------------------------
-            if (redirectState == RedirectState.DECELERATING) {
-                val brakeRate = (stopDeceleration.value * 30.0 * dt).toFloat()
-                val speed = hypot(currentDecelVelYaw.toDouble(), currentDecelVelPitch.toDouble()).toFloat()
-
-                if (speed <= brakeRate || speed < 1.0f) {
-                    // Fully stopped! Transition to returning phase
-                    redirectState = RedirectState.RETURNING
-                    currentReturnSpeed = 0f
-                } else {
-                    val newSpeed = speed - brakeRate
-                    val scale = newSpeed / speed
-                    currentDecelVelYaw *= scale
-                    currentDecelVelPitch *= scale
-
-                    val nextYaw = currentYaw + currentDecelVelYaw * dt.toFloat()
-                    val nextPitch = currentPitch + currentDecelVelPitch * dt.toFloat()
-                    PlayerUtils.rotate(nextYaw, nextPitch)
-                    return@register
-                }
-            }
-
-            // ----------------------------------------------------
-            // REDIRECT FIX: Return Glide Phase
-            // ----------------------------------------------------
-            if (redirectState == RedirectState.RETURNING) {
-                val targetRot = MathUtils.calcYawPitch(currentTargetVec)
-                val deltaYaw = MathUtils.normalizeYaw(targetRot.yaw - currentYaw)
-                val deltaPitch = MathUtils.normalizePitch(targetRot.pitch - currentPitch)
-                val angularDist = hypot(deltaYaw.toDouble(), deltaPitch.toDouble()).toFloat()
-
-                if (isLookingAtButton(targetButton) || angularDist <= 0.25f) {
-                    if (angularDist <= 0.25f) {
-                        PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
-                    }
-                    redirectState = RedirectState.IDLE
-                    wasOnHitbox = true
-                    hasAimed = true
-                    return@register
-                }
-
-                if (redirectFixMode.value && smoothMovement.value) {
-                    // Kinematic acceleration & deceleration profile
-                    val accel = (returnAcceleration.value * 20.0).toFloat()
-                    val decel = (stopDeceleration.value * 20.0).toFloat()
-                    val maxSpd = (returnMaxSpeed.value * 4.0).toFloat()
-
-                    val stopDist = (currentReturnSpeed * currentReturnSpeed) / (2f * decel)
-
-                    if (angularDist <= stopDist) {
-                        currentReturnSpeed = (currentReturnSpeed - decel * dt.toFloat()).coerceAtLeast(4.0f)
-                    } else {
-                        currentReturnSpeed = (currentReturnSpeed + accel * dt.toFloat()).coerceAtMost(maxSpd)
-                    }
-
-                    val step = (currentReturnSpeed * dt.toFloat()).coerceIn(0.05f, angularDist)
-                    val ratio = (step / angularDist).coerceIn(0f, 1f)
-                    val newYaw = currentYaw + deltaYaw * ratio
-                    val newPitch = currentPitch + deltaPitch * ratio
-
-                    PlayerUtils.rotate(newYaw, newPitch)
-
-                    if (isLookingAtButton(targetButton)) {
-                        redirectState = RedirectState.IDLE
-                        wasOnHitbox = true
-                        hasAimed = true
-                    }
-                    return@register
-                } else {
-                    val speedVal = if (redirectFixMode.value) rotationSpeed.value * 6.0 else rotationSpeed.value * 4.5
-                    val step = (speedVal * dt).toFloat().coerceIn(0.1f, angularDist)
-                    val ratio = (step / angularDist).coerceIn(0f, 1f)
-                    val newYaw = currentYaw + deltaYaw * ratio
-                    val newPitch = currentPitch + deltaPitch * ratio
-                    PlayerUtils.rotate(newYaw, newPitch)
-
-                    if (isLookingAtButton(targetButton)) {
-                        redirectState = RedirectState.IDLE
-                        wasOnHitbox = true
-                        hasAimed = true
-                    }
-                    return@register
-                }
-            }
-
-            // ----------------------------------------------------
-            // NORMAL & THRESHOLD LOCK AIM ASSIST
-            // ----------------------------------------------------
-            // If aimCenter is enabled and crosshair is already looking at the button hitbox, stop aiming
-            if (aimCenter.value && onHitbox) {
-                hasAimed = true
+            // Outside circle -> no aim assist
+            if (screenDist > helperRadius.value.toDouble()) {
+                redirectActive = false
+                isThresholdLocking = false
                 return@register
             }
 
-            // If already aimed at this button once, do not pull again unless Threshold Lock Mode is active and off target
-            if (hasAimed) {
-                if (!thresholdLockMode.value || !isThresholdLocking) {
-                    return@register
-                }
-            }
-
-            // In threshold lock mode, only aim when threshold condition is active (idle/slow mouse)
-            if (thresholdLockMode.value && !isThresholdLocking) {
-                return@register
-            }
-
-            // Check if the button is within the client-side circle
-            if (currentScreenDist > helperRadius.value.toDouble()) {
-                return@register
-            }
-
-            // Calculate target yaw and pitch
-            val targetRot = MathUtils.calcYawPitch(currentTargetVec)
+            val targetRot = MathUtils.calcYawPitch(targetVec)
             val deltaYaw = MathUtils.normalizeYaw(targetRot.yaw - currentYaw)
             val deltaPitch = MathUtils.normalizePitch(targetRot.pitch - currentPitch)
             val angularDist = hypot(deltaYaw.toDouble(), deltaPitch.toDouble()).toFloat()
 
-            // Stop condition:
-            if ((aimCenter.value && isLookingAtButton(targetButton)) || angularDist <= 0.25f) {
-                if (angularDist <= 0.25f) {
-                    PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
-                }
-                hasAimed = true
-                return@register
-            }
-
-            val speed = rotationSpeed.value
-
-            // Smooth frame-rate independent glide towards the button
-            val degPerSec = speed * 4.5
-            val baseStep = (degPerSec * dt).toFloat()
-            val easeFactor = if (angularDist < 1.5f) (angularDist / 1.5f).coerceIn(0.25f, 1.0f) else 1.0f
-            val step = (baseStep * easeFactor).coerceIn(0.05f, angularDist)
-
-            val ratio = (step / angularDist).coerceIn(0f, 1f)
-            val newYaw = currentYaw + deltaYaw * ratio
-            val newPitch = currentPitch + deltaPitch * ratio
-
-            PlayerUtils.rotate(newYaw, newPitch)
-
-            // Check if this rotation reached the button hitbox
-            if (aimCenter.value && isLookingAtButton(targetButton)) {
-                hasAimed = true
-                return@register
-            }
-
-            val remainingDist = hypot(
-                MathUtils.normalizeYaw(targetRot.yaw - newYaw).toDouble(),
-                MathUtils.normalizePitch(targetRot.pitch - newPitch).toDouble()
-            ).toFloat()
-
-            if (remainingDist <= 0.25f) {
+            if (angularDist <= 0.25f) {
                 PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                 hasAimed = true
+                redirectActive = false
+                isThresholdLocking = false
+                return@register
+            }
+
+            // ----------------------------------------------------
+            // MODE 0: CLASSIC HELPER
+            // ----------------------------------------------------
+            if (mode.value == 0) {
+                val speed = classicRotationSpeed.value * 4.5
+                val baseStep = (speed * dt).toFloat()
+                val easeFactor = if (angularDist < 1.5f) (angularDist / 1.5f).coerceIn(0.25f, 1.0f) else 1.0f
+                val step = (baseStep * easeFactor).coerceIn(0.05f, angularDist)
+
+                val ratio = (step / angularDist).coerceIn(0f, 1f)
+                val newYaw = currentYaw + deltaYaw * ratio
+                val newPitch = currentPitch + deltaPitch * ratio
+                PlayerUtils.rotate(newYaw, newPitch)
+
+                if (isLookingAtButton(targetButton)) {
+                    hasAimed = true
+                }
+                return@register
+            }
+
+            // ----------------------------------------------------
+            // MODE 1: THRESHOLD LOCK
+            // ----------------------------------------------------
+            if (mode.value == 1) {
+                if (!isThresholdLocking) return@register
+
+                val speed = thresholdRotationSpeed.value * 4.5
+                val baseStep = (speed * dt).toFloat()
+                val easeFactor = if (angularDist < 1.5f) (angularDist / 1.5f).coerceIn(0.25f, 1.0f) else 1.0f
+                val step = (baseStep * easeFactor).coerceIn(0.05f, angularDist)
+
+                val ratio = (step / angularDist).coerceIn(0f, 1f)
+                val newYaw = currentYaw + deltaYaw * ratio
+                val newPitch = currentPitch + deltaPitch * ratio
+                PlayerUtils.rotate(newYaw, newPitch)
+
+                if (isLookingAtButton(targetButton)) {
+                    hasAimed = true
+                    isThresholdLocking = false
+                }
+                return@register
+            }
+
+            // ----------------------------------------------------
+            // MODE 3: REDIRECT MODE
+            // ----------------------------------------------------
+            if (mode.value == 3) {
+                if (!redirectActive) {
+                    redirectActive = true
+                    redirectStartTime = now
+                    val baseSpeed = max(recentSpeed * speedMultiplier.value.toFloat(), minimumSpeed.value.toFloat())
+                    redirectCurrentSpeed = baseSpeed
+                }
+
+                // Timeout check
+                if (now - redirectStartTime > 600L) {
+                    redirectActive = false
+                    return@register
+                }
+
+                // Smooth finish deceleration when nearing the button
+                if (smoothFinish.value) {
+                    val decel = (finishDeceleration.value * 10.0).toFloat()
+                    val stopDist = (redirectCurrentSpeed * redirectCurrentSpeed) / (2f * decel)
+
+                    if (angularDist <= stopDist) {
+                        redirectCurrentSpeed = (redirectCurrentSpeed - decel * dt.toFloat())
+                            .coerceAtLeast(minimumSpeed.value.toFloat() * 0.4f)
+                    }
+                }
+
+                val step = (redirectCurrentSpeed * dt.toFloat()).coerceIn(0.05f, angularDist)
+                val ratio = (step / angularDist).coerceIn(0f, 1f)
+                val newYaw = currentYaw + deltaYaw * ratio
+                val newPitch = currentPitch + deltaPitch * ratio
+                PlayerUtils.rotate(newYaw, newPitch)
+
+                if (isLookingAtButton(targetButton)) {
+                    redirectActive = false
+                    hasAimed = true
+                }
+                return@register
+            }
+
+            // Track recent rotational speed when outside or before redirecting
+            if (!redirectActive) {
+                recentSpeed = max(recentSpeed * 0.75f, currentRotSpeed)
             }
         }
     }
@@ -723,15 +660,11 @@ object SSAimHelper : Feature(
         hasAimed = false
         lastFrameTime = 0L
         isThresholdLocking = false
-        redirectState = RedirectState.IDLE
+        hitboxHoverStartTime = 0L
+        redirectActive = false
         redirectStartTime = 0L
-        lastOnHitboxTime = 0L
-        wasOnHitbox = false
-        minScreenDistRecent = 9999.0
-        lastDistTime = 0L
-        currentDecelVelYaw = 0f
-        currentDecelVelPitch = 0f
-        currentReturnSpeed = 0f
+        redirectCurrentSpeed = 0f
+        recentSpeed = 0f
         prevYaw = 0f
         prevPitch = 0f
         clickedSSButton = null
