@@ -14,12 +14,12 @@ import com.github.noamm9.features.impl.floor7.devices.SimonSays
 import com.github.noamm9.nexclusive.features.impl.nexclusive.ss.*
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
-import com.github.noamm9.ui.utils.Resolution
-import com.github.noamm9.utils.render.Render2D.drawAnnularSegment
+import com.github.noamm9.nexclusive.utils.render.CircleRenderer
+import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
+import com.github.noamm9.ui.clickgui.ClickGuiScreen
 import net.minecraft.core.BlockPos
 import org.lwjgl.glfw.GLFW
 import java.awt.Color
-import kotlin.math.hypot
 
 object SSAimHelper: Feature(
     name = "SS Aim Helper",
@@ -43,8 +43,6 @@ object SSAimHelper: Feature(
     val holdDelay by SliderSetting("Hold Delay", 0, 0, 30, 1, "ms").showIf { mode.value == 3 && detailedSettings.value }
     val minimumSpeed by SliderSetting("Minimum Speed", 0.0, 0.0, 300.0, 5.0, "°/s").showIf { mode.value == 3 && detailedSettings.value }
     val maxSpeed by SliderSetting("Max Speed", 1200.0, 100.0, 3000.0, 50.0, "°/s").showIf { mode.value == 3 && detailedSettings.value }
-    val smoothFinish by ToggleSetting("Smooth Finish", false).showIf { mode.value == 3 && detailedSettings.value }
-    val finishDeceleration by SliderSetting("Finish Deceleration", 35.0, 5.0, 100.0, 1.0).showIf { mode.value == 3 && detailedSettings.value && smoothFinish.value }
 
     val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px").section("Aim Radius").showIf { mode.value != 2 }
     private val drawCircle by ToggleSetting("Draw Circle", true).showIf { mode.value != 2 }
@@ -55,26 +53,10 @@ object SSAimHelper: Feature(
     private val modes: Array<SSMode> = arrayOf(ClassicMode, ThresholdMode, StopMovementMode, RedirectMode)
     private val currentMode get() = modes.getOrNull(mode.value)
 
-    private var lastTargetPos: BlockPos? = null
     private var hasAimed = false
     private var lastFrameTime = 0L
 
-    private var isFirstClickInPhase = true
-    private var wasInClickingPhase = false
-    private var initialPhaseButton: BlockPos? = null
-
     val isThresholdLocking get() = ThresholdMode.isLocking
-
-    val isFirstButton: Boolean
-        get() {
-            if (! isFirstClickInPhase) return false
-            val num = SimonSaysBridge.getValidButtonNumber()
-            if (num != null && num > 1) {
-                isFirstClickInPhase = false
-                return false
-            }
-            return true
-        }
 
     fun shouldSuppressMouseInput(dx: Double, dy: Double): Boolean {
         if (! enabled || mc.screen != null || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice() || ! SimonSaysBridge.isDeviceInClickingPhase()) {
@@ -82,9 +64,7 @@ object SSAimHelper: Feature(
             return false
         }
 
-        if (dontAssistFirstClick.value && isFirstButton) {
-            return false
-        }
+        if (dontAssistFirstClick.value && SimonSaysBridge.isFirstButton) return false
 
         val targetButton = SimonSaysBridge.getValidButton() ?: return false
         if (SimonSaysBridge.isCurrentTargetClicked()) {
@@ -115,50 +95,23 @@ object SSAimHelper: Feature(
 
         register<RenderOverlayEvent> {
             if (! SimonSays.enabled || mode.value == 2 || ! drawCircle.value) return@register
-            if (! SimonSaysBridge.isAtSSDevice() && mc.screen == null) return@register
-
-            Resolution.push(event.context)
-            event.context.drawAnnularSegment(
-                centerX = Resolution.width / 2f,
-                centerY = Resolution.height / 2f,
-                innerRadius = helperRadius.value.toFloat() - 1.2f,
-                outerRadius = helperRadius.value.toFloat(),
-                startAngle = 0.0,
-                endAngle = Math.PI * 2.0,
-                color = circleColor.value
-            )
-            Resolution.pop(event.context)
+            if (! SimonSaysBridge.isAtSSDevice() && mc.screen !is ClickGuiScreen) return@register
+            event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
             if (mc.screen != null || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice()) return@register
-            if (! SimonSaysBridge.isDeviceInClickingPhase()) {
-                wasInClickingPhase = false
-                isFirstClickInPhase = true
-                initialPhaseButton = null
-                return@register resetAimState()
-            }
+            if (! SimonSaysBridge.isDeviceInClickingPhase()) return@register resetAimState()
 
             val targetButton = SimonSaysBridge.getValidButton() ?: return@register resetAimState()
-
-            if (! wasInClickingPhase) {
-                wasInClickingPhase = true
-                isFirstClickInPhase = true
-                initialPhaseButton = targetButton
-            }
 
             val now = System.currentTimeMillis()
             val dt = if (lastFrameTime == 0L) 0.016 else ((now - lastFrameTime) / 1000.0).coerceIn(0.001, 0.05)
             lastFrameTime = now
 
-            if (targetButton != lastTargetPos) {
-                if (lastTargetPos != null && initialPhaseButton != null && targetButton != initialPhaseButton) {
-                    isFirstClickInPhase = false
-                }
-                lastTargetPos = targetButton
+            if (SimonSaysBridge.updateTarget(targetButton)) {
                 hasAimed = false
                 resetTurnState()
-                SimonSaysBridge.resetClickedState()
             }
 
             val inTarget = SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value)
@@ -174,7 +127,7 @@ object SSAimHelper: Feature(
                 return@register
             }
 
-            if (dontAssistFirstClick.value && isFirstButton) return@register
+            if (dontAssistFirstClick.value && SimonSaysBridge.isFirstButton) return@register
 
             if (hasAimed && mode.value != 1) return@register
 
@@ -182,11 +135,7 @@ object SSAimHelper: Feature(
 
             if (mode.value != 2) {
                 val screenPos = ProjectionUtils.worldToScreen(targetVec) ?: return@register resetTurnState()
-                val screenDist = hypot(
-                    screenPos.x.toDouble() - (Resolution.width / 2.0),
-                    screenPos.y.toDouble() - (Resolution.height / 2.0)
-                )
-                if (screenDist > helperRadius.value.toDouble()) return@register resetTurnState()
+                if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) return@register resetTurnState()
             }
 
             currentMode?.onRender(dt, targetButton, targetVec, inTarget, hasAimed) {
@@ -201,7 +150,6 @@ object SSAimHelper: Feature(
     }
 
     private fun onTargetClicked() {
-        isFirstClickInPhase = false
         SimonSaysBridge.markTargetClicked()
         hasAimed = false
         resetTurnState()
@@ -212,13 +160,9 @@ object SSAimHelper: Feature(
     }
 
     private fun resetAimState() {
-        lastTargetPos = null
         hasAimed = false
         lastFrameTime = 0L
-        isFirstClickInPhase = true
-        wasInClickingPhase = false
-        initialPhaseButton = null
         resetTurnState()
-        SimonSaysBridge.resetClickedState()
+        SimonSaysBridge.resetPhase()
     }
 }

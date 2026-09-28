@@ -27,6 +27,48 @@ object SimonSaysBridge {
     private var clickedSolutionSize = - 1
     private var clickTime = 0L
 
+    private var wasInClickingPhase = false
+    private var isFirstClickInPhase = true
+    private var initialPhaseButton: BlockPos? = null
+    private var lastTargetPos: BlockPos? = null
+
+    val isFirstButton: Boolean
+        get() {
+            if (! isFirstClickInPhase) return false
+            val num = getValidButtonNumber()
+            if (num != null && num > 1) {
+                isFirstClickInPhase = false
+                return false
+            }
+            return true
+        }
+
+    fun updateTarget(targetButton: BlockPos): Boolean {
+        if (! wasInClickingPhase) {
+            wasInClickingPhase = true
+            isFirstClickInPhase = true
+            initialPhaseButton = targetButton
+        }
+
+        if (targetButton != lastTargetPos) {
+            if (lastTargetPos != null && initialPhaseButton != null && targetButton != initialPhaseButton) {
+                isFirstClickInPhase = false
+            }
+            lastTargetPos = targetButton
+            resetClickedState()
+            return true
+        }
+        return false
+    }
+
+    fun resetPhase() {
+        wasInClickingPhase = false
+        isFirstClickInPhase = true
+        initialPhaseButton = null
+        lastTargetPos = null
+        resetClickedState()
+    }
+
     fun isAtSSDevice(): Boolean {
         val player = mc.player ?: return false
         return LocationUtils.F7Phase == 3 && player.position().distanceToSqr(deviceCenter) <= 49.0
@@ -34,7 +76,9 @@ object SimonSaysBridge {
 
     fun isDeviceInClickingPhase(): Boolean {
         val level = mc.level ?: return false
-        return level.getBlockState(buttonCheckPos).block == Blocks.STONE_BUTTON
+        val inPhase = level.getBlockState(buttonCheckPos).block == Blocks.STONE_BUTTON
+        if (! inPhase && wasInClickingPhase) resetPhase()
+        return inPhase
     }
 
     fun getSolutionList(): List<*>? {
@@ -77,6 +121,7 @@ object SimonSaysBridge {
         clickedButtonPos = currentPos
         clickedSolutionSize = getSolutionList()?.size ?: - 1
         clickTime = System.currentTimeMillis()
+        isFirstClickInPhase = false
     }
 
     fun isCurrentTargetClicked(): Boolean {

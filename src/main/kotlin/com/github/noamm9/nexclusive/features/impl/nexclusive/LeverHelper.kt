@@ -9,11 +9,11 @@ import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
-import com.github.noamm9.ui.utils.Resolution
+import com.github.noamm9.nexclusive.utils.render.CircleRenderer
+import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.location.LocationUtils
-import com.github.noamm9.utils.render.Render2D.drawAnnularSegment
 import com.github.noamm9.utils.render.RenderHelper.renderVec
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
@@ -109,12 +109,9 @@ object LeverHelper: Feature(
         if (visible.isEmpty()) return null
         if (visible.contains(center)) return center
 
-        val halfW = Resolution.width / 2.0
-        val halfH = Resolution.height / 2.0
-
         return visible.minByOrNull { pt ->
             val screenPos = ProjectionUtils.worldToScreen(pt) ?: return@minByOrNull Double.MAX_VALUE
-            hypot(screenPos.x.toDouble() - halfW, screenPos.y.toDouble() - halfH)
+            CircleRenderer.distanceToCenter(screenPos)
         }
     }
 
@@ -182,17 +179,7 @@ object LeverHelper: Feature(
                 if (getNearbyLevers(eyePos).isEmpty()) return@register
             }
 
-            Resolution.push(event.context)
-            event.context.drawAnnularSegment(
-                centerX = Resolution.width / 2f,
-                centerY = Resolution.height / 2f,
-                innerRadius = helperRadius.value.toFloat() - 1.2f,
-                outerRadius = helperRadius.value.toFloat(),
-                startAngle = 0.0,
-                endAngle = Math.PI * 2.0,
-                color = circleColor.value
-            )
-            Resolution.pop(event.context)
+            event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
@@ -210,8 +197,6 @@ object LeverHelper: Feature(
                 return@register
             }
 
-            val halfW = Resolution.width / 2.0
-            val halfH = Resolution.height / 2.0
             val maxRadius = helperRadius.value.toDouble()
             val now = System.currentTimeMillis()
             val cooldownMs = (aimCooldown.value * 1000.0).toLong()
@@ -222,7 +207,7 @@ object LeverHelper: Feature(
             val bestCandidate = levers.mapNotNull { (pos, target) ->
                 if (cooldownMs > 0L && now - (leverAimedTimes[pos] ?: 0L) < cooldownMs) return@mapNotNull null
                 val screenPos = ProjectionUtils.worldToScreen(target) ?: return@mapNotNull null
-                val dist = hypot(screenPos.x.toDouble() - halfW, screenPos.y.toDouble() - halfH)
+                val dist = CircleRenderer.distanceToCenter(screenPos)
                 if (dist <= maxRadius) Candidate(pos, target, dist) else null
             }.minByOrNull { it.dist }
 

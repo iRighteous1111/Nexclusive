@@ -2,22 +2,19 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.ss
 
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.detailedSettings
-import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.finishDeceleration
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.helperRadius
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.holdDelay
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.maxSpeed
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.minimumSpeed
-import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.smoothFinish
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.speedMultiplier
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
-import com.github.noamm9.ui.utils.Resolution
+import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.PlayerUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.world.phys.Vec3
 import kotlin.math.hypot
-import kotlin.math.pow
 
 object RedirectMode: SSMode {
     private var pendingDelta = 0.0
@@ -36,8 +33,7 @@ object RedirectMode: SSMode {
         }
 
         val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: return false
-        val dist = hypot(screenPos.x.toDouble() - (Resolution.width / 2.0), screenPos.y.toDouble() - (Resolution.height / 2.0))
-        if (dist > helperRadius.value.toDouble()) return false
+        if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) return false
 
         pendingDelta += hypot(dx, dy)
         return true
@@ -84,11 +80,6 @@ object RedirectMode: SSMode {
             }
             val maxStep = (maxSpeed.value.toFloat() * dt.toFloat())
             if (step > maxStep) step = maxStep
-            if (smoothFinish.value && angularDist < 2.5f) {
-                val ease = (angularDist / 2.5f).coerceIn(0.15f, 1.0f)
-                val rate = (finishDeceleration.value.toFloat() / 35.0f).coerceIn(0.5f, 2.5f)
-                step *= ease.pow(rate)
-            }
         }
 
         val ratio = (step / angularDist).coerceIn(0f, 1f)
