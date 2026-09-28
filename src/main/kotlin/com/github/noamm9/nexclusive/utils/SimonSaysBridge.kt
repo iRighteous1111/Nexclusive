@@ -134,10 +134,15 @@ object SimonSaysBridge {
         return aabb.clip(eyePos, endVec).isPresent
     }
 
-    fun isInCenterArea(targetButton: BlockPos, sizePercent: Number): Boolean {
+    fun isInTargetArea(targetButton: BlockPos, sizePercent: Number): Boolean {
         if (! isLookingAtButton(targetButton)) return false
+        val percent = sizePercent.toDouble()
+        if (percent >= 100.0) return true
         val offset = getHitboxCenterOffset(targetButton) ?: return true
-        val ratio = (sizePercent.toDouble() / 100.0).coerceIn(0.2, 1.0)
+        val ratio = (percent / 100.0).coerceIn(0.1, 1.0)
         return abs(offset.x) <= 0.15 * ratio && abs(offset.y) <= 0.20 * ratio
     }
+
+    fun isInCenterArea(targetButton: BlockPos, sizePercent: Number): Boolean =
+        isInTargetArea(targetButton, sizePercent)
 }

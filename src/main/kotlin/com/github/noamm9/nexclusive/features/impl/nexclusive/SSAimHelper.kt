@@ -23,6 +23,7 @@ import org.lwjgl.glfw.GLFW
 import java.awt.Color
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.pow
 
 object SSAimHelper: Feature(
     name = "SS Aim Helper",
@@ -61,29 +62,33 @@ object SSAimHelper: Feature(
         .showIf { mode.value == 2 }
         .withDescription("Delay after looking at the button center area before stopping mouse movement.")
 
-    private val centerAreaSize by SliderSetting("Center Area Size", 65, 30, 100, 5, "%")
-        .showIf { mode.value == 2 }
-        .withDescription("Size of the centered hitbox region required to trigger mouse stop. 100% = entire hitbox, 65% = middle area.")
-
     private val speedMultiplier by SliderSetting("Speed Multiplier", 3.0, 0.5, 10.0, 0.5, "x")
         .section("Redirect Mode Settings")
         .showIf { mode.value == 3 }
         .withDescription("Multiplier applied to your mouse flick speed for redirection.")
 
-    private val minimumSpeed by SliderSetting("Minimum Speed", 80.0, 20.0, 300.0, 5.0, "°/s")
+    private val detailedSettings by ToggleSetting("Detailed Settings", false)
         .showIf { mode.value == 3 }
-        .withDescription("Minimum rotation speed towards the button if flick was slow.")
+        .withDescription("Shows advanced settings for Redirect Mode.")
 
-    private val maxSpeed by SliderSetting("Max Speed", 700.0, 100.0, 1500.0, 25.0, "°/s")
-        .showIf { mode.value == 3 }
+    private val holdDelay by SliderSetting("Hold Delay", 0, 0, 30, 1, "ms")
+        .showIf { mode.value == 3 && detailedSettings.value }
+        .withDescription("Duration to hold aim on the button before releasing mouse control.")
+
+    private val minimumSpeed by SliderSetting("Minimum Speed", 0.0, 0.0, 300.0, 5.0, "°/s")
+        .showIf { mode.value == 3 && detailedSettings.value }
+        .withDescription("Minimum rotation speed towards the button while moving mouse.")
+
+    private val maxSpeed by SliderSetting("Max Speed", 1200.0, 100.0, 3000.0, 50.0, "°/s")
+        .showIf { mode.value == 3 && detailedSettings.value }
         .withDescription("Maximum rotation speed cap during redirection.")
 
-    private val smoothFinish by ToggleSetting("Smooth Finish", true)
-        .showIf { mode.value == 3 }
-        .withDescription("Gradually decelerates the crosshair as it nears the button to prevent abrupt stopping.")
+    private val smoothFinish by ToggleSetting("Smooth Finish", false)
+        .showIf { mode.value == 3 && detailedSettings.value }
+        .withDescription("Gradually decelerates rotation as crosshair nears the button.")
 
     private val finishDeceleration by SliderSetting("Finish Deceleration", 35.0, 5.0, 100.0, 1.0)
-        .showIf { mode.value == 3 && smoothFinish.value }
+        .showIf { mode.value == 3 && detailedSettings.value && smoothFinish.value }
         .withDescription("Deceleration rate when smoothly finishing aim on the button.")
 
     private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px")
@@ -99,6 +104,9 @@ object SSAimHelper: Feature(
         .showIf { mode.value != 2 && drawCircle.value }
         .withDescription("Color of the on-screen circle.")
 
+    private val aimingOffset by SliderSetting("Aiming Offset", 100, 20, 100, 5, "%")
+        .withDescription("Hitbox area percentage required to finish aiming. 100% stops at hitbox edge, 65% aims towards center area.")
+
     private var lastTargetPos: BlockPos? = null
     private var hasAimed = false
     private var lastFrameTime = 0L
@@ -108,12 +116,10 @@ object SSAimHelper: Feature(
 
     private var buttonInCircleTime = 0L
     private var hitboxHoverStartTime = 0L
+    private var targetHoldStartTime = 0L
 
     private var redirectActive = false
-    private var redirectCurrentSpeed = 0f
-    private var recentMaxSpeed = 0f
-    private var recentSpeedTime = 0L
-    private var lastPhysicalMouseDelta = 0.0
+    private var pendingRedirectDelta = 0.0
     private var lastPhysicalMouseMoveTime = 0L
 
     private var prevYaw = 0f
@@ -139,22 +145,21 @@ object SSAimHelper: Feature(
         val now = System.currentTimeMillis()
         val mouseDelta = hypot(dx, dy)
         if (mouseDelta > 0.1) {
-            lastPhysicalMouseDelta = mouseDelta
             lastPhysicalMouseMoveTime = now
         }
 
-        val onHitbox = SimonSaysBridge.isLookingAtButton(targetButton)
+        val inTarget = SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value)
 
         when (mode.value) {
             0 -> {
-                if (onHitbox || hasAimed) return false
+                if (inTarget || hasAimed) return false
                 val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: return false
                 val dist = hypot(screenPos.x.toDouble() - (Resolution.width / 2.0), screenPos.y.toDouble() - (Resolution.height / 2.0))
                 if (dist <= helperRadius.value.toDouble()) return true
             }
 
             1 -> {
-                if (onHitbox || hasAimed) {
+                if (inTarget || hasAimed) {
                     isThresholdLocking = false
                     buttonInCircleTime = 0L
                     return false
@@ -178,7 +183,7 @@ object SSAimHelper: Feature(
             }
 
             2 -> {
-                if (SimonSaysBridge.isInCenterArea(targetButton, centerAreaSize.value)) {
+                if (inTarget) {
                     if (hitboxHoverStartTime == 0L) hitboxHoverStartTime = now
                     val elapsed = now - hitboxHoverStartTime
                     val delay = stopDelay.value.toLong()
@@ -189,14 +194,32 @@ object SSAimHelper: Feature(
             }
 
             3 -> {
-                if (onHitbox || hasAimed) {
+                if (hasAimed) {
                     redirectActive = false
                     return false
                 }
-                if (redirectActive) return true
-                val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: return false
+                if (inTarget) {
+                    if (detailedSettings.value && holdDelay.value > 0) {
+                        if (targetHoldStartTime == 0L) targetHoldStartTime = now
+                        if (now - targetHoldStartTime < holdDelay.value.toLong()) {
+                            return true
+                        }
+                    }
+                    redirectActive = false
+                    return false
+                }
+                val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: run {
+                    redirectActive = false
+                    return false
+                }
                 val dist = hypot(screenPos.x.toDouble() - (Resolution.width / 2.0), screenPos.y.toDouble() - (Resolution.height / 2.0))
-                if (dist <= helperRadius.value.toDouble()) return true
+                if (dist <= helperRadius.value.toDouble()) {
+                    redirectActive = true
+                    pendingRedirectDelta += mouseDelta
+                    return true
+                } else {
+                    redirectActive = false
+                }
             }
         }
 
@@ -211,6 +234,7 @@ object SSAimHelper: Feature(
             val current = SimonSaysBridge.getValidButton() ?: return@register
             if (event.pos == current) {
                 SimonSaysBridge.markTargetClicked()
+                hasAimed = false
                 resetTurnState()
             }
         }
@@ -221,6 +245,7 @@ object SSAimHelper: Feature(
                 val current = SimonSaysBridge.getValidButton() ?: return@register
                 if (SimonSaysBridge.isLookingAtButton(current)) {
                     SimonSaysBridge.markTargetClicked()
+                    hasAimed = false
                     resetTurnState()
                 }
             }
@@ -263,32 +288,32 @@ object SSAimHelper: Feature(
             val currentYaw = player.yRot
             val currentPitch = player.xRot
 
-            val velYaw = if (dt > 0.0) MathUtils.normalizeYaw(currentYaw - prevYaw) / dt.toFloat() else 0f
-            val velPitch = if (dt > 0.0) MathUtils.normalizePitch(currentPitch - prevPitch) / dt.toFloat() else 0f
-            val currentRotSpeed = hypot(velYaw.toDouble(), velPitch.toDouble()).toFloat()
             prevYaw = currentYaw
             prevPitch = currentPitch
 
             if (targetButton != lastTargetPos) {
                 lastTargetPos = targetButton
+                hasAimed = false
                 resetTurnState()
                 SimonSaysBridge.resetClickedState()
             }
 
-            val onHitbox = SimonSaysBridge.isLookingAtButton(targetButton)
+            val inTarget = SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value)
 
-            if (onHitbox && (mc.options.keyUse.isDown || mc.options.keyAttack.isDown)) {
+            if (inTarget && (mc.options.keyUse.isDown || mc.options.keyAttack.isDown)) {
                 SimonSaysBridge.markTargetClicked()
+                hasAimed = false
                 resetTurnState()
             }
 
             if (SimonSaysBridge.isCurrentTargetClicked()) {
+                hasAimed = false
                 resetTurnState()
                 return@register
             }
 
             if (mode.value == 2) {
-                if (SimonSaysBridge.isInCenterArea(targetButton, centerAreaSize.value)) {
+                if (inTarget) {
                     if (hitboxHoverStartTime == 0L) hitboxHoverStartTime = now
                 } else {
                     hitboxHoverStartTime = 0L
@@ -296,15 +321,26 @@ object SSAimHelper: Feature(
                 return@register
             }
 
-            if (onHitbox) {
+            val targetVec = SimonSaysBridge.getTargetPoint(targetButton)
+
+            if (inTarget) {
+                if (mode.value == 3 && detailedSettings.value && holdDelay.value > 0) {
+                    if (targetHoldStartTime == 0L) targetHoldStartTime = now
+                    if (now - targetHoldStartTime < holdDelay.value.toLong()) {
+                        val targetRot = MathUtils.calcYawPitch(targetVec)
+                        PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
+                        return@register
+                    }
+                }
                 hasAimed = true
-                resetTurnState()
+                redirectActive = false
+                isThresholdLocking = false
+                targetHoldStartTime = 0L
                 return@register
             }
 
             if (hasAimed && mode.value != 1) return@register
 
-            val targetVec = SimonSaysBridge.getTargetPoint(targetButton)
             val screenPos = ProjectionUtils.worldToScreen(targetVec) ?: run {
                 resetTurnState()
                 return@register
@@ -325,10 +361,11 @@ object SSAimHelper: Feature(
             val deltaPitch = MathUtils.normalizePitch(targetRot.pitch - currentPitch)
             val angularDist = hypot(deltaYaw.toDouble(), deltaPitch.toDouble()).toFloat()
 
-            if (angularDist <= 0.25f) {
+            if (angularDist <= 0.25f && mode.value != 3) {
                 PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                 hasAimed = true
-                resetTurnState()
+                redirectActive = false
+                isThresholdLocking = false
                 return@register
             }
 
@@ -337,7 +374,7 @@ object SSAimHelper: Feature(
                     val ratio = AimUtils.easedRatio(angularDist, classicRotationSpeed.value * 4.5, dt)
 
                     PlayerUtils.rotate(currentYaw + deltaYaw * ratio, currentPitch + deltaPitch * ratio)
-                    if (SimonSaysBridge.isLookingAtButton(targetButton)) hasAimed = true
+                    if (SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value)) hasAimed = true
                 }
 
                 1 -> {
@@ -348,7 +385,7 @@ object SSAimHelper: Feature(
                     val ratio = AimUtils.easedRatio(angularDist, thresholdRotationSpeed.value * 4.5, dt)
 
                     PlayerUtils.rotate(currentYaw + deltaYaw * ratio, currentPitch + deltaPitch * ratio)
-                    if (SimonSaysBridge.isLookingAtButton(targetButton)) {
+                    if (SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value)) {
                         hasAimed = true
                         isThresholdLocking = false
                         buttonInCircleTime = 0L
@@ -356,44 +393,41 @@ object SSAimHelper: Feature(
                 }
 
                 3 -> {
-                    if (! redirectActive) {
-                        redirectActive = true
-                        val flick = max(recentMaxSpeed, minimumSpeed.value.toFloat())
-                        redirectCurrentSpeed = (flick * speedMultiplier.value.toFloat()).coerceIn(
-                            minimumSpeed.value.toFloat(),
-                            maxSpeed.value.toFloat()
-                        )
-                    }
+                    val delta = pendingRedirectDelta
+                    pendingRedirectDelta = 0.0
 
-                    if (now - lastPhysicalMouseMoveTime < 60L && lastPhysicalMouseDelta > 2.0) {
-                        val liveSpeed = (lastPhysicalMouseDelta * 25.0 * speedMultiplier.value).toFloat()
-                        redirectCurrentSpeed = liveSpeed.coerceIn(minimumSpeed.value.toFloat(), maxSpeed.value.toFloat())
-                    }
+                    if (delta <= 0.001) return@register
 
-                    if (smoothFinish.value) {
-                        val decel = (finishDeceleration.value * 25.0).toFloat()
-                        val stopDist = (redirectCurrentSpeed * redirectCurrentSpeed) / (2f * decel)
-                        if (angularDist <= stopDist) {
-                            redirectCurrentSpeed = (redirectCurrentSpeed - decel * dt.toFloat())
-                                .coerceAtLeast(minimumSpeed.value.toFloat() * 0.8f)
+                    val f = mc.options.sensitivity().get().toFloat() * 0.6f + 0.2f
+                    val gcd = f * f * f * 1.2f
+                    val inputDegrees = delta.toFloat() * gcd
+                    var step = inputDegrees * speedMultiplier.value.toFloat()
+
+                    if (detailedSettings.value) {
+                        if (minimumSpeed.value > 0.0) {
+                            val minStep = (minimumSpeed.value.toFloat() * dt.toFloat())
+                            if (step < minStep) step = minStep
+                        }
+                        val maxStep = (maxSpeed.value.toFloat() * dt.toFloat())
+                        if (step > maxStep) step = maxStep
+                        if (smoothFinish.value && angularDist < 2.5f) {
+                            val ease = (angularDist / 2.5f).coerceIn(0.15f, 1.0f)
+                            val rate = (finishDeceleration.value.toFloat() / 35.0f).coerceIn(0.5f, 2.5f)
+                            step *= ease.pow(rate)
                         }
                     }
 
-                    val step = (redirectCurrentSpeed * dt.toFloat()).coerceIn(0.05f, angularDist)
                     val ratio = (step / angularDist).coerceIn(0f, 1f)
                     PlayerUtils.rotate(currentYaw + deltaYaw * ratio, currentPitch + deltaPitch * ratio)
 
-                    if (SimonSaysBridge.isLookingAtButton(targetButton)) {
-                        redirectActive = false
-                        hasAimed = true
+                    if (SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value) || ratio >= 1f) {
+                        if (detailedSettings.value && holdDelay.value > 0) {
+                            if (targetHoldStartTime == 0L) targetHoldStartTime = now
+                        } else {
+                            hasAimed = true
+                            redirectActive = false
+                        }
                     }
-                }
-            }
-
-            if (! redirectActive) {
-                if (currentRotSpeed > recentMaxSpeed || now - recentSpeedTime > 250L) {
-                    recentMaxSpeed = max(currentRotSpeed, 60.0f)
-                    recentSpeedTime = now
                 }
             }
         }
@@ -405,19 +439,18 @@ object SSAimHelper: Feature(
     }
 
     private fun resetTurnState() {
-        hasAimed = false
         isThresholdLocking = false
         buttonInCircleTime = 0L
         redirectActive = false
         hitboxHoverStartTime = 0L
+        targetHoldStartTime = 0L
+        pendingRedirectDelta = 0.0
     }
 
     private fun resetAimState() {
         lastTargetPos = null
+        hasAimed = false
         lastFrameTime = 0L
-        recentMaxSpeed = 0f
-        recentSpeedTime = 0L
-        lastPhysicalMouseDelta = 0.0
         lastPhysicalMouseMoveTime = 0L
         prevYaw = 0f
         prevPitch = 0f
