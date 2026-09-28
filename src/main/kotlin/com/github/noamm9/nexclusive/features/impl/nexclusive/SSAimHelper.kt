@@ -49,6 +49,7 @@ object SSAimHelper: Feature(
     val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px").section("Aim Radius").showIf { mode.value != 2 }
     private val drawCircle by ToggleSetting("Draw Circle", true).showIf { mode.value != 2 }
     private val circleColor by ColorSetting("Circle Color", Color(0, 255, 255), true).showIf { mode.value != 2 && drawCircle.value }
+    val dontAssistFirstClick by ToggleSetting("Dont assist first click", false)
     val aimingOffset by SliderSetting("Aiming Offset", 100, 20, 100, 5, "%")
 
     private val modes: Array<SSMode> = arrayOf(ClassicMode, ThresholdMode, StopMovementMode, RedirectMode)
@@ -58,11 +59,30 @@ object SSAimHelper: Feature(
     private var hasAimed = false
     private var lastFrameTime = 0L
 
+    private var isFirstClickInPhase = true
+    private var wasInClickingPhase = false
+    private var initialPhaseButton: BlockPos? = null
+
     val isThresholdLocking get() = ThresholdMode.isLocking
+
+    val isFirstButton: Boolean
+        get() {
+            if (! isFirstClickInPhase) return false
+            val num = SimonSaysBridge.getValidButtonNumber()
+            if (num != null && num > 1) {
+                isFirstClickInPhase = false
+                return false
+            }
+            return true
+        }
 
     fun shouldSuppressMouseInput(dx: Double, dy: Double): Boolean {
         if (! enabled || mc.screen != null || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice() || ! SimonSaysBridge.isDeviceInClickingPhase()) {
             resetTurnState()
+            return false
+        }
+
+        if (dontAssistFirstClick.value && isFirstButton) {
             return false
         }
 
@@ -112,15 +132,29 @@ object SSAimHelper: Feature(
 
         register<RenderWorldEvent> {
             if (mc.screen != null || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice()) return@register
-            if (! SimonSaysBridge.isDeviceInClickingPhase()) return@register resetAimState()
+            if (! SimonSaysBridge.isDeviceInClickingPhase()) {
+                wasInClickingPhase = false
+                isFirstClickInPhase = true
+                initialPhaseButton = null
+                return@register resetAimState()
+            }
 
             val targetButton = SimonSaysBridge.getValidButton() ?: return@register resetAimState()
+
+            if (! wasInClickingPhase) {
+                wasInClickingPhase = true
+                isFirstClickInPhase = true
+                initialPhaseButton = targetButton
+            }
 
             val now = System.currentTimeMillis()
             val dt = if (lastFrameTime == 0L) 0.016 else ((now - lastFrameTime) / 1000.0).coerceIn(0.001, 0.05)
             lastFrameTime = now
 
             if (targetButton != lastTargetPos) {
+                if (lastTargetPos != null && initialPhaseButton != null && targetButton != initialPhaseButton) {
+                    isFirstClickInPhase = false
+                }
                 lastTargetPos = targetButton
                 hasAimed = false
                 resetTurnState()
@@ -139,6 +173,8 @@ object SSAimHelper: Feature(
                 resetTurnState()
                 return@register
             }
+
+            if (dontAssistFirstClick.value && isFirstButton) return@register
 
             if (hasAimed && mode.value != 1) return@register
 
@@ -165,6 +201,7 @@ object SSAimHelper: Feature(
     }
 
     private fun onTargetClicked() {
+        isFirstClickInPhase = false
         SimonSaysBridge.markTargetClicked()
         hasAimed = false
         resetTurnState()
@@ -178,6 +215,9 @@ object SSAimHelper: Feature(
         lastTargetPos = null
         hasAimed = false
         lastFrameTime = 0L
+        isFirstClickInPhase = true
+        wasInClickingPhase = false
+        initialPhaseButton = null
         resetTurnState()
         SimonSaysBridge.resetClickedState()
     }

@@ -20,6 +20,7 @@ object SimonSaysBridge {
     }
 
     private var buttonFieldCache: Field? = null
+    private var numberFieldCache: Field? = null
 
     private var clickedSSButton: Any? = null
     private var clickedButtonPos: BlockPos? = null
@@ -42,6 +43,16 @@ object SimonSaysBridge {
     }
 
     fun getValidSSButton(): Any? = getSolutionList()?.firstOrNull()
+
+    fun getValidButtonNumber(): Int? {
+        val first = getValidSSButton() ?: return null
+        return runCatching {
+            if (numberFieldCache == null) {
+                numberFieldCache = first.javaClass.getDeclaredField("number").apply { isAccessible = true }
+            }
+            numberFieldCache?.getInt(first)
+        }.getOrNull()
+    }
 
     fun getValidButton(): BlockPos? {
         if (! isDeviceInClickingPhase()) return null

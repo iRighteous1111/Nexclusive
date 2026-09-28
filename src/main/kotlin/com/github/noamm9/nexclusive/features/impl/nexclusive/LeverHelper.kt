@@ -31,6 +31,12 @@ object LeverHelper: Feature(
     private val onlyInBoss by ToggleSetting("Only in Boss", false)
         .withDescription("Only activates lever helper while inside a boss fight.")
 
+    private val ignoreLightsDevice by ToggleSetting("Ignore Lights Device", true)
+        .withDescription("Prevents aiming at levers in the F7/M7 Lights device.")
+
+    private val ignoreAdjacentLevers by ToggleSetting("Ignore Adjacent Levers", false)
+        .withDescription("Prevents aiming if two levers are placed right next to each other.")
+
     private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px")
         .section("Aim Radius")
         .withDescription("Screen radius of the circle to detect levers.")
@@ -112,6 +118,36 @@ object LeverHelper: Feature(
         }
     }
 
+    private val lightsDeviceLevers = hashSetOf(
+        BlockPos(61, 136, 142), BlockPos(60, 136, 142),
+        BlockPos(59, 136, 142), BlockPos(62, 135, 142),
+        BlockPos(61, 135, 142), BlockPos(59, 135, 142),
+        BlockPos(58, 135, 142), BlockPos(62, 134, 142),
+        BlockPos(61, 134, 142), BlockPos(59, 134, 142),
+        BlockPos(58, 134, 142), BlockPos(61, 133, 142),
+        BlockPos(60, 133, 142), BlockPos(59, 133, 142)
+    )
+
+    private fun isLightsDevice(pos: BlockPos): Boolean {
+        if (LocationUtils.dungeonFloorNumber == 7 || LocationUtils.inBoss) {
+            if (pos in lightsDeviceLevers) return true
+            if (pos.z == 142 && pos.x in 57 .. 63 && pos.y in 132 .. 137) return true
+        }
+        return false
+    }
+
+    private fun hasAdjacentLever(pos: BlockPos): Boolean {
+        for (dx in - 1 .. 1) {
+            for (dy in - 1 .. 1) {
+                for (dz in - 1 .. 1) {
+                    if (dx == 0 && dy == 0 && dz == 0) continue
+                    if (level.getBlockState(pos.offset(dx, dy, dz)).block == Blocks.LEVER) return true
+                }
+            }
+        }
+        return false
+    }
+
     private fun getNearbyLevers(eyePos: Vec3): List<Pair<BlockPos, Vec3>> {
         val base = player.blockPosition()
         val levers = mutableListOf<Pair<BlockPos, Vec3>>()
@@ -121,6 +157,8 @@ object LeverHelper: Feature(
                 for (dz in - 5 .. 5) {
                     val pos = base.offset(dx, dy, dz)
                     if (level.getBlockState(pos).block != Blocks.LEVER) continue
+                    if (ignoreLightsDevice.value && isLightsDevice(pos)) continue
+                    if (ignoreAdjacentLevers.value && hasAdjacentLever(pos)) continue
                     if (eyePos.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) > 25.0) continue
 
                     val visiblePt = getVisibleTargetPoint(pos, eyePos) ?: continue
