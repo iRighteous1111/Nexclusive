@@ -30,7 +30,7 @@ object RedirectMode: SSMode {
                 if (now - holdStartTime < holdDelay.value.toLong()) return true
             }
             return false
-        }
+        }   
 
         val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: return false
         if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) return false

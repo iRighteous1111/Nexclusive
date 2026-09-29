@@ -15,7 +15,7 @@ import net.minecraft.core.BlockPos
 import net.minecraft.world.phys.Vec3
 import kotlin.math.hypot
 
-object ThresholdMode: SSMode {
+object T    hresholdMode: SSMode {
     @Volatile var isLocking = false
         private set
 
