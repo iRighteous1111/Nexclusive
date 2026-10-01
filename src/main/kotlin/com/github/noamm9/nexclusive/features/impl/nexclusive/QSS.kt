@@ -3,6 +3,7 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive
 import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
+import com.github.noamm9.event.EventBus
 import com.github.noamm9.event.impl.PlayerInteractEvent
 import com.github.noamm9.event.impl.RenderOverlayEvent
 import com.github.noamm9.event.impl.TickEvent
@@ -12,13 +13,15 @@ import com.github.noamm9.features.Feature
 import com.github.noamm9.features.impl.floor7.devices.SimonSays
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
 import com.github.noamm9.ui.utils.Resolution
-import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.ServerUtils
 import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.render.Render2D.drawString
 import net.minecraft.core.BlockPos
+import net.minecraft.core.Direction
+import net.minecraft.world.InteractionHand
 import net.minecraft.world.level.block.Blocks
+import net.minecraft.world.phys.BlockHitResult
 import java.awt.Color
 import java.util.ArrayDeque
 
@@ -40,7 +43,12 @@ object QSS: Feature(
     // General
     private val displayQueue by ToggleSetting("Display Queue", false)
 
-    private data class QueuedClick(val isLeft: Boolean, val userDelta: Long, val timestamp: Long)
+    private data class QueuedClick(
+        val pos: BlockPos,
+        val isLeft: Boolean,
+        val userDelta: Long,
+        val timestamp: Long
+    )
 
     private val queue = ArrayDeque<QueuedClick>()
     private var queueStartTime = 0L
@@ -134,7 +142,7 @@ object QSS: Feature(
                     queueStartTime = now
                 }
                 if (queue.size < 6) {
-                    queue.add(QueuedClick(isLeft, userDelta, now))
+                    queue.add(QueuedClick(pos, isLeft, userDelta, now))
                 }
             }
 
@@ -155,7 +163,7 @@ object QSS: Feature(
                     queueStartTime = now
                 }
                 if (queue.size < 6) {
-                    queue.add(QueuedClick(isLeft, userDelta, now))
+                    queue.add(QueuedClick(pos, isLeft, userDelta, now))
                 }
             }
         }
@@ -164,11 +172,6 @@ object QSS: Feature(
     private fun processQueue() {
         if (! enabled || queue.isEmpty() || mc.screen != null) return
         if (! SimonSaysBridge.isAtSSDevice() || ! SimonSaysBridge.isDeviceInClickingPhase()) {
-            resetQueue()
-            return
-        }
-
-        if (SimonSaysBridge.getSolutionList().isNullOrEmpty()) {
             resetQueue()
             return
         }
@@ -212,16 +215,6 @@ object QSS: Feature(
         }
 
         if (canDispatch) {
-            val target = SimonSaysBridge.getValidButton()
-            if (target == null) {
-                resetQueue()
-                return
-            }
-
-            if (! SimonSaysBridge.isLookingAtButton(target)) {
-                return
-            }
-
             val click = queue.poll() ?: return
             if (queue.isEmpty()) {
                 queueStartTime = 0L
@@ -230,12 +223,32 @@ object QSS: Feature(
             lastSentTick = currentTick
             lastSentTime = now
 
-            if (click.isLeft) {
-                PlayerUtils.leftClick()
-            } else {
-                PlayerUtils.rightClick()
-            }
+            dispatchClick(click)
         }
+    }
+
+    private fun dispatchClick(click: QueuedClick) {
+        val level = mc.level ?: return
+        val player = mc.player ?: return
+        val gameMode = mc.gameMode ?: return
+
+        if (level.getBlockState(click.pos).block != Blocks.STONE_BUTTON) {
+            resetQueue()
+            return
+        }
+
+        val hitVec = SimonSaysBridge.getTargetPoint(click.pos)
+        val hitResult = BlockHitResult(hitVec, Direction.WEST, click.pos, false)
+
+        gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hitResult)
+        player.swing(InteractionHand.MAIN_HAND)
+
+        val interactEvent = if (click.isLeft) {
+            PlayerInteractEvent.LEFT_CLICK.BLOCK(player.mainHandItem, click.pos)
+        } else {
+            PlayerInteractEvent.RIGHT_CLICK.BLOCK(player.mainHandItem, click.pos)
+        }
+        EventBus.post(interactEvent)
     }
 
     override fun onDisable() {
