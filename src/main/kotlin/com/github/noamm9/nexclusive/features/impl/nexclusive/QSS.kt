@@ -35,6 +35,7 @@ object QSS: Feature(
     private val extraDelay by SliderSetting("Extra Delay", 0, 0, 2, 1, "t").section("Queue Clicks").showIf { mode.value == 1 }
     private val resyncTimeout by SliderSetting("Resync Timeout", 400, 150, 1000, 25, "ms").showIf { mode.value == 1 }
     private val preserveRhythm by ToggleSetting("Preserve Rhythm", true).showIf { mode.value == 1 }
+    private val debugDelay by SliderSetting("Debug Delay", 0.0, 0.0, 10.0, 0.5, "s").section("Debug").showIf { mode.value == 1 }
 
     // General
     private val displayQueue by ToggleSetting("Display Queue", false)
@@ -42,6 +43,7 @@ object QSS: Feature(
     private data class QueuedClick(val isLeft: Boolean, val userDelta: Long, val timestamp: Long)
 
     private val queue = ArrayDeque<QueuedClick>()
+    private var queueStartTime = 0L
     private var lastUserClickTime = 0L
     private var lastSentTick = - 1L
     private var lastSentTime = 0L
@@ -73,7 +75,15 @@ object QSS: Feature(
             if (! SimonSaysBridge.isAtSSDevice()) return@register
 
             Resolution.push(event.context)
-            val text = "§bQ-SS: §e${queue.size}"
+            val now = System.currentTimeMillis()
+            val debugMs = (debugDelay.value * 1000.0).toLong()
+            val isDebugWaiting = mode.value == 1 && debugDelay.value > 0.0 && now - queueStartTime < debugMs
+            val text = if (isDebugWaiting) {
+                val remSeconds = "%.1f".format((debugMs - (now - queueStartTime)) / 1000.0)
+                "§bQ-SS: §e${remSeconds}s §7(x${queue.size})"
+            } else {
+                "§bQ-SS: §e${queue.size}"
+            }
             event.context.drawString(
                 text,
                 (Resolution.width / 2f) + 10f,
@@ -120,7 +130,10 @@ object QSS: Feature(
 
                 // Low TPS or same tick burst: intercept and queue to prevent corruption
                 event.cancel()
-                if (queue.size < 4) {
+                if (queue.isEmpty()) {
+                    queueStartTime = now
+                }
+                if (queue.size < 6) {
                     queue.add(QueuedClick(isLeft, userDelta, now))
                 }
             }
@@ -129,8 +142,8 @@ object QSS: Feature(
                 val tps = ServerUtils.tps.coerceIn(5f, 20f)
                 val safeTickMs = ((1000f / tps) * (1 + extraDelay.value)).toLong().coerceIn(35L, 250L)
 
-                // If TPS is normal, no queue active, and tick boundary met: pass through
-                if (queue.isEmpty() && tps >= 19.5f && ticksElapsed > extraDelay.value && msElapsed >= safeTickMs) {
+                // If debug delay is 0, TPS is normal, no queue active, and tick boundary met: pass through
+                if (debugDelay.value <= 0.0 && queue.isEmpty() && tps >= 19.5f && ticksElapsed > extraDelay.value && msElapsed >= safeTickMs) {
                     lastSentTick = currentTick
                     lastSentTime = now
                     return
@@ -138,7 +151,10 @@ object QSS: Feature(
 
                 // Otherwise, buffer input rhythm safely
                 event.cancel()
-                if (queue.size < 4) {
+                if (queue.isEmpty()) {
+                    queueStartTime = now
+                }
+                if (queue.size < 6) {
                     queue.add(QueuedClick(isLeft, userDelta, now))
                 }
             }
@@ -158,12 +174,23 @@ object QSS: Feature(
         }
 
         val now = System.currentTimeMillis()
-        val timeoutMs = if (mode.value == 0) 350L else resyncTimeout.value.toLong()
+        val debugDelayMs = (debugDelay.value * 1000.0).toLong()
+
+        // If debug delay is active in Queue Clicks mode, hold execution until initial delay passes
+        if (mode.value == 1 && debugDelay.value > 0.0 && (now - queueStartTime) < debugDelayMs) {
+            return
+        }
+
+        val baseTimeout = if (mode.value == 0) 350L else resyncTimeout.value.toLong()
+        val timeoutMs = if (mode.value == 1 && debugDelay.value > 0.0) baseTimeout + debugDelayMs else baseTimeout
 
         while (queue.isNotEmpty() && now - queue.peek().timestamp > timeoutMs) {
             queue.poll()
         }
-        if (queue.isEmpty()) return
+        if (queue.isEmpty()) {
+            queueStartTime = 0L
+            return
+        }
 
         val currentTick = DungeonListener.currentTime
         val ticksElapsed = currentTick - lastSentTick
@@ -196,6 +223,9 @@ object QSS: Feature(
             }
 
             val click = queue.poll() ?: return
+            if (queue.isEmpty()) {
+                queueStartTime = 0L
+            }
             dispatchedClicks ++
             lastSentTick = currentTick
             lastSentTime = now
@@ -215,6 +245,7 @@ object QSS: Feature(
 
     private fun resetQueue() {
         queue.clear()
+        queueStartTime = 0L
         lastUserClickTime = 0L
         lastSentTick = - 1L
         lastSentTime = 0L
