@@ -1,5 +1,6 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive
 
+import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
 import com.github.noamm9.event.impl.PlayerInteractEvent
@@ -23,16 +24,25 @@ import java.util.ArrayDeque
 
 object QSS: Feature(
     name = "Q-SS",
-    description = "Queues Simon Says button clicks to prevent skips and clicks from failing during low TPS."
+    description = "Prevents Simon Says and SS skip clicks from breaking during low TPS."
 ) {
-    private val extraDelay by SliderSetting("Extra Delay", 0, 0, 2, 1, "t").withDescription("Extra server ticks to wait between queued clicks (0 = max speed, 1 click per server tick).")
-    private val resyncTimeout by SliderSetting("Resync Timeout", 400, 150, 1000, 25, "ms").withDescription("Automatically flushes the queue if clicks stay buffered longer than this to prevent desync.")
-    private val tpsSync by ToggleSetting("TPS Sync", true).withDescription("Dynamically adapts click spacing when server TPS drops.")
-    private val displayQueue by ToggleSetting("Display Queue", false).withDescription("Shows remaining queued clicks on screen.")
+    private val mode by DropdownSetting("Mode", 0, listOf("TPS Check", "Queue Clicks"))
 
-    private data class QueuedClick(val isLeft: Boolean, val timestamp: Long)
+    // Mode 0: TPS Check
+    private val tpsThreshold by SliderSetting("TPS Threshold", 19.0, 10.0, 20.0, 0.5).section("TPS Check").showIf { mode.value == 0 }
+
+    // Mode 1: Queue Clicks
+    private val extraDelay by SliderSetting("Extra Delay", 0, 0, 2, 1, "t").section("Queue Clicks").showIf { mode.value == 1 }
+    private val resyncTimeout by SliderSetting("Resync Timeout", 400, 150, 1000, 25, "ms").showIf { mode.value == 1 }
+    private val preserveRhythm by ToggleSetting("Preserve Rhythm", true).showIf { mode.value == 1 }
+
+    // General
+    private val displayQueue by ToggleSetting("Display Queue", false)
+
+    private data class QueuedClick(val isLeft: Boolean, val userDelta: Long, val timestamp: Long)
 
     private val queue = ArrayDeque<QueuedClick>()
+    private var lastUserClickTime = 0L
     private var lastSentTick = - 1L
     private var lastSentTime = 0L
     private var dispatchedClicks = 0
@@ -95,24 +105,43 @@ object QSS: Feature(
         val now = System.currentTimeMillis()
         val ticksElapsed = currentTick - lastSentTick
         val msElapsed = now - lastSentTime
+        val userDelta = if (lastUserClickTime == 0L) 0L else (now - lastUserClickTime).coerceIn(0L, 500L)
+        lastUserClickTime = now
 
-        val minIntervalMs = if (tpsSync.value) {
-            val tps = ServerUtils.tps.coerceIn(5f, 20f)
-            ((1000f / tps) * (1 + extraDelay.value)).toLong().coerceIn(35L, 250L)
-        } else {
-            ((1 + extraDelay.value) * 50L).coerceAtLeast(35L)
-        }
+        when (mode.value) {
+            0 -> { // TPS Check Mode
+                val tps = ServerUtils.tps
+                // If TPS is healthy and tick has advanced, pass through immediately
+                if (queue.isEmpty() && tps >= tpsThreshold.value.toFloat() && ticksElapsed > 0) {
+                    lastSentTick = currentTick
+                    lastSentTime = now
+                    return
+                }
 
-        if (queue.isEmpty() && ticksElapsed > extraDelay.value && msElapsed >= minIntervalMs) {
-            lastSentTick = currentTick
-            lastSentTime = now
-            return
-        }
+                // Low TPS or same tick burst: intercept and queue to prevent corruption
+                event.cancel()
+                if (queue.size < 4) {
+                    queue.add(QueuedClick(isLeft, userDelta, now))
+                }
+            }
 
-        event.cancel()
+            1 -> { // Queue Clicks Mode
+                val tps = ServerUtils.tps.coerceIn(5f, 20f)
+                val safeTickMs = ((1000f / tps) * (1 + extraDelay.value)).toLong().coerceIn(35L, 250L)
 
-        if (queue.size < 4) {
-            queue.add(QueuedClick(isLeft, now))
+                // If TPS is normal, no queue active, and tick boundary met: pass through
+                if (queue.isEmpty() && tps >= 19.5f && ticksElapsed > extraDelay.value && msElapsed >= safeTickMs) {
+                    lastSentTick = currentTick
+                    lastSentTime = now
+                    return
+                }
+
+                // Otherwise, buffer input rhythm safely
+                event.cancel()
+                if (queue.size < 4) {
+                    queue.add(QueuedClick(isLeft, userDelta, now))
+                }
+            }
         }
     }
 
@@ -129,8 +158,9 @@ object QSS: Feature(
         }
 
         val now = System.currentTimeMillis()
+        val timeoutMs = if (mode.value == 0) 350L else resyncTimeout.value.toLong()
 
-        while (queue.isNotEmpty() && now - queue.peek().timestamp > resyncTimeout.value.toLong()) {
+        while (queue.isNotEmpty() && now - queue.peek().timestamp > timeoutMs) {
             queue.poll()
         }
         if (queue.isEmpty()) return
@@ -138,15 +168,23 @@ object QSS: Feature(
         val currentTick = DungeonListener.currentTime
         val ticksElapsed = currentTick - lastSentTick
         val msElapsed = now - lastSentTime
+        val tps = ServerUtils.tps.coerceIn(5f, 20f)
 
-        val minIntervalMs = if (tpsSync.value) {
-            val tps = ServerUtils.tps.coerceIn(5f, 20f)
-            ((1000f / tps) * (1 + extraDelay.value)).toLong().coerceIn(35L, 250L)
-        } else {
-            ((1 + extraDelay.value) * 50L).coerceAtLeast(35L)
+        val nextClick = queue.peek() ?: return
+
+        val canDispatch = when (mode.value) {
+            0 -> { // TPS Check: dispatch on next available server tick
+                ticksElapsed > 0
+            }
+            1 -> { // Queue Clicks: safe server tick interval + optional user rhythm
+                val safeTickMs = ((1000f / tps) * (1 + extraDelay.value)).toLong().coerceIn(35L, 250L)
+                val requiredDelay = if (preserveRhythm.value) maxOf(safeTickMs, nextClick.userDelta) else safeTickMs
+                ticksElapsed > extraDelay.value && msElapsed >= requiredDelay
+            }
+            else -> false
         }
 
-        if (ticksElapsed > extraDelay.value && msElapsed >= minIntervalMs) {
+        if (canDispatch) {
             val target = SimonSaysBridge.getValidButton()
             if (target == null) {
                 resetQueue()
@@ -177,6 +215,7 @@ object QSS: Feature(
 
     private fun resetQueue() {
         queue.clear()
+        lastUserClickTime = 0L
         lastSentTick = - 1L
         lastSentTime = 0L
         dispatchedClicks = 0
