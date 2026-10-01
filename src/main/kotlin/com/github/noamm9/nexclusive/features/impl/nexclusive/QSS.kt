@@ -147,10 +147,16 @@ object QSS: Feature(
         }
 
         if (ticksElapsed > extraDelay.value && msElapsed >= minIntervalMs) {
-            if (SimonSaysBridge.getValidButton() == null) {
+            val target = SimonSaysBridge.getValidButton()
+            if (target == null) {
                 resetQueue()
                 return
             }
+
+            if (! SimonSaysBridge.isLookingAtButton(target)) {
+                return
+            }
+
             val click = queue.poll() ?: return
             dispatchedClicks ++
             lastSentTick = currentTick
