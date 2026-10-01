@@ -26,6 +26,7 @@ object QSS: Feature(
     description = "Queues Simon Says button clicks to prevent skips and clicks from failing during low TPS."
 ) {
     private val extraDelay by SliderSetting("Extra Delay", 0, 0, 2, 1, "t").withDescription("Extra server ticks to wait between queued clicks (0 = max speed, 1 click per server tick).")
+    private val resyncTimeout by SliderSetting("Resync Timeout", 400, 150, 1000, 25, "ms").withDescription("Automatically flushes the queue if clicks stay buffered longer than this to prevent desync.")
     private val tpsSync by ToggleSetting("TPS Sync", true).withDescription("Dynamically adapts click spacing when server TPS drops.")
     private val displayQueue by ToggleSetting("Display Queue", false).withDescription("Shows remaining queued clicks on screen.")
 
@@ -122,9 +123,14 @@ object QSS: Feature(
             return
         }
 
+        if (SimonSaysBridge.getSolutionList().isNullOrEmpty()) {
+            resetQueue()
+            return
+        }
+
         val now = System.currentTimeMillis()
 
-        while (queue.isNotEmpty() && now - queue.peek().timestamp > 450L) {
+        while (queue.isNotEmpty() && now - queue.peek().timestamp > resyncTimeout.value.toLong()) {
             queue.poll()
         }
         if (queue.isEmpty()) return
@@ -141,6 +147,10 @@ object QSS: Feature(
         }
 
         if (ticksElapsed > extraDelay.value && msElapsed >= minIntervalMs) {
+            if (SimonSaysBridge.getValidButton() == null) {
+                resetQueue()
+                return
+            }
             val click = queue.poll() ?: return
             dispatchedClicks ++
             lastSentTick = currentTick
