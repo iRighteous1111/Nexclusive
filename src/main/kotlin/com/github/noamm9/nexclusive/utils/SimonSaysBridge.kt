@@ -201,4 +201,7 @@ object SimonSaysBridge {
 
     fun isInCenterArea(targetButton: BlockPos, sizePercent: Number): Boolean =
         isInTargetArea(targetButton, sizePercent)
+
+    fun isSSButton(pos: BlockPos): Boolean =
+        pos.x == 110 && pos.y in 120..123 && pos.z in 92..95
 }

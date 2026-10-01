@@ -8,14 +8,14 @@ import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.thresho
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
-import com.github.noamm9.ui.utils.Resolution
+import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.PlayerUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.world.phys.Vec3
 import kotlin.math.hypot
 
-object T    hresholdMode: SSMode {
+object ThresholdMode: SSMode {
     @Volatile var isLocking = false
         private set
 
@@ -32,8 +32,7 @@ object T    hresholdMode: SSMode {
             return false
         }
 
-        val dist = hypot(screenPos.x.toDouble() - (Resolution.width / 2.0), screenPos.y.toDouble() - (Resolution.height / 2.0))
-        if (dist > helperRadius.value.toDouble()) {
+        if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) {
             reset()
             return false
         }
