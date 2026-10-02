@@ -1,5 +1,6 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
+import com.github.noamm9.config.types.ButtonSetting
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SliderSetting
@@ -13,7 +14,6 @@ import com.github.noamm9.features.impl.dungeon.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ColorUtils.withAlpha
-import com.github.noamm9.utils.dungeons.DungeonPlayer
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.Render2D.drawBorder
@@ -28,52 +28,89 @@ import java.awt.Color
 
 object LeapMenuFeatures: Feature(
     name = "Leap Menu Features",
-    description = "Enhances Noamm's Leap Menu with phase-specific targets, scaling, highlights, and leap protection."
+    description = "Enhances Noamm's Leap Menu with boss mode selections, targets, scaling, highlights, and protection."
 ) {
-    // 1. Visual Features
+    // 1. General Visuals & Protection
     private val highlightCorrect by ToggleSetting("Highlight Correct Player", true).section("Visuals")
-    private val highlightColor by ColorSetting("Highlight Color", Color(0, 255, 120, 220), true).showIf { highlightCorrect.value }
+    private val useClassColor by ToggleSetting("Use Class Color for Highlight", true).showIf { highlightCorrect.value }
+    private val customHighlightColor by ColorSetting("Custom Highlight Color", Color(0, 255, 120, 220), true).showIf { highlightCorrect.value && ! useClassColor.value }
 
     private val changeSize by ToggleSetting("Change Size", true)
     private val targetScale by SliderSetting("Target Scale", 1.25, 1.0, 2.0, 0.05).showIf { changeSize.value }
-    private val otherScale by SliderSetting("Other Scale", 0.85, 0.5, 1.0, 0.05).showIf { changeSize.value }
+    private val otherScale by SliderSetting("Other Scale", 0.65, 0.1, 1.0, 0.05).showIf { changeSize.value }
 
-    // 2. Protection Features
     private val blockWrongLeap by ToggleSetting("Block Wrong Leap", false).section("Protection")
     private val overrideClicks by SliderSetting("Override Clicks", 3, 1, 10, 1).showIf { blockWrongLeap.value }
 
-    // Class selection choices
+    // 2. Boss Selection Mode Menu
+    private val selectedBoss by DropdownSetting("Boss Section", 0, listOf("Maxor", "Storm", "Goldor", "Necron", "P5 (M7)")).section("Boss Targets")
     private val classOptions = listOf("None", "Archer", "Mage", "Berserk", "Healer", "Tank")
 
-    // 3. Maxor Configuration
-    private val maxorEnabled by ToggleSetting("Enable Maxor", true).section("Maxor")
-    private val maxorLeap by DropdownSetting("Maxor Leap", 0, classOptions).showIf { maxorEnabled.value }
+    // --- Maxor (Boss 0) ---
+    private val maxorEnabled by ToggleSetting("Enable Maxor", true).showIf { selectedBoss.value == 0 }
+    private val maxorLeap by DropdownSetting("Maxor Leap", 0, classOptions).showIf { selectedBoss.value == 0 && maxorEnabled.value }
 
-    // 4. Storm Configuration
-    private val stormEnabled by ToggleSetting("Enable Storm", true).section("Storm")
-    private val pyLeap by DropdownSetting("PY Leap", 0, classOptions).showIf { stormEnabled.value }
-    private val sscLeap by DropdownSetting("SSC Leap", 0, classOptions).showIf { stormEnabled.value }
+    // --- Storm (Boss 1) ---
+    private val stormEnabled by ToggleSetting("Enable Storm", true).showIf { selectedBoss.value == 1 }
+    private val checkpointLeap by DropdownSetting("Checkpoint Leap (Purple)", 0, classOptions).showIf { selectedBoss.value == 1 && stormEnabled.value }
+    private val yellowCrusherLeap by DropdownSetting("Yellow Crusher Leap", 0, classOptions).showIf { selectedBoss.value == 1 && stormEnabled.value }
+    private val sscLeap by DropdownSetting("SSC Leap", 0, classOptions).showIf { selectedBoss.value == 1 && stormEnabled.value }
 
-    // 5. Goldor Configuration
-    private val goldorEnabled by ToggleSetting("Enable Goldor", true).section("Goldor")
-    private val s1Leap1 by DropdownSetting("S1 First Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s1Leap2 by DropdownSetting("S1 Second Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s1Leap3 by DropdownSetting("S1 Third Leap", 0, classOptions).showIf { goldorEnabled.value }
+    // --- Goldor (Boss 2) ---
+    private val goldorEnabled by ToggleSetting("Enable Goldor", true).showIf { selectedBoss.value == 2 }
 
-    private val s2Leap1 by DropdownSetting("S2 First Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s2Leap2 by DropdownSetting("S2 Second Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s2Leap3 by DropdownSetting("S2 Third Leap", 0, classOptions).showIf { goldorEnabled.value }
+    // S1
+    private val s1LeapsCount by SliderSetting("S1 Leaps Count", 1, 1, 4, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    @Suppress("unused")
+    private val addS1Leap = ButtonSetting("+ Add S1 Leap") {
+        if (s1LeapsCount.value < 4) s1LeapsCount.value = s1LeapsCount.value + 1
+    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value < 4 }.apply(configSettings::add)
+    private val s1Leap1 by DropdownSetting("S1 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    private val s1Leap2 by DropdownSetting("S1 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value >= 2 }
+    private val s1Leap3 by DropdownSetting("S1 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value >= 3 }
+    private val s1Leap4 by DropdownSetting("S1 Leap 4", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value >= 4 }
 
-    private val s3Leap1 by DropdownSetting("S3 First Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s3Leap2 by DropdownSetting("S3 Second Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s3Leap3 by DropdownSetting("S3 Third Leap", 0, classOptions).showIf { goldorEnabled.value }
+    // S2
+    private val s2LeapsCount by SliderSetting("S2 Leaps Count", 1, 1, 4, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    @Suppress("unused")
+    private val addS2Leap = ButtonSetting("+ Add S2 Leap") {
+        if (s2LeapsCount.value < 4) s2LeapsCount.value = s2LeapsCount.value + 1
+    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value < 4 }.apply(configSettings::add)
+    private val s2Leap1 by DropdownSetting("S2 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    private val s2Leap2 by DropdownSetting("S2 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value >= 2 }
+    private val s2Leap3 by DropdownSetting("S2 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value >= 3 }
+    private val s2Leap4 by DropdownSetting("S2 Leap 4", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value >= 4 }
 
-    private val s4Leap1 by DropdownSetting("S4 First Leap", 0, classOptions).showIf { goldorEnabled.value }
-    private val s4Leap2 by DropdownSetting("S4 Second Leap", 0, classOptions).showIf { goldorEnabled.value }
+    // S3
+    private val s3LeapsCount by SliderSetting("S3 Leaps Count", 1, 1, 4, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    @Suppress("unused")
+    private val addS3Leap = ButtonSetting("+ Add S3 Leap") {
+        if (s3LeapsCount.value < 4) s3LeapsCount.value = s3LeapsCount.value + 1
+    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value < 4 }.apply(configSettings::add)
+    private val s3Leap1 by DropdownSetting("S3 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    private val s3Leap2 by DropdownSetting("S3 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value >= 2 }
+    private val s3Leap3 by DropdownSetting("S3 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value >= 3 }
+    private val s3Leap4 by DropdownSetting("S3 Leap 4", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value >= 4 }
 
-    // 6. P5 (M7) Configuration
-    private val p5Enabled by ToggleSetting("Enable P5", true).section("P5 (M7)")
-    private val p5RelicLeap by DropdownSetting("P5 Relic Leap", 0, classOptions).showIf { p5Enabled.value }
+    // S4
+    private val s4LeapsCount by SliderSetting("S4 Leaps Count", 1, 1, 3, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    @Suppress("unused")
+    private val addS4Leap = ButtonSetting("+ Add S4 Leap") {
+        if (s4LeapsCount.value < 3) s4LeapsCount.value = s4LeapsCount.value + 1
+    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s4LeapsCount.value < 3 }.apply(configSettings::add)
+    private val s4Leap1 by DropdownSetting("S4 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
+    private val s4Leap2 by DropdownSetting("S4 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s4LeapsCount.value >= 2 }
+    private val s4Leap3 by DropdownSetting("S4 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s4LeapsCount.value >= 3 }
+
+    // --- Necron (Boss 3) ---
+    private val necronEnabled by ToggleSetting("Enable Necron", true).showIf { selectedBoss.value == 3 }
+    private val middleLeap by DropdownSetting("Middle Leap", 0, classOptions).showIf { selectedBoss.value == 3 && necronEnabled.value }
+    private val pre4Leap by DropdownSetting("Pre4 / I4 Leap", 0, classOptions).showIf { selectedBoss.value == 3 && necronEnabled.value }
+
+    // --- P5 (M7) (Boss 4) ---
+    private val p5Enabled by ToggleSetting("Enable P5", true).showIf { selectedBoss.value == 4 }
+    private val p5StartLeap by DropdownSetting("P5 Start Leap", 0, classOptions).showIf { selectedBoss.value == 4 && p5Enabled.value }
+    private val relicLeap by DropdownSetting("Relic Leap", 0, classOptions).showIf { selectedBoss.value == 4 && p5Enabled.value }
 
     // Runtime state
     private var consecutiveWrongClicks = 0
@@ -96,7 +133,6 @@ object LeapMenuFeatures: Feature(
             if (! isApplicable(event.screen)) return@register
 
             val targetIndex = getTargetPlayerIndex()
-            // If no target or neither highlight nor resize is enabled, let Noamm render as default
             if (targetIndex == null && ! changeSize.value && ! highlightCorrect.value) return@register
 
             event.isCanceled = true
@@ -140,7 +176,6 @@ object LeapMenuFeatures: Feature(
     }
 
     fun getTargetClass(): DungeonClass? {
-        BossPhaseDetector.updateState()
         if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return null
 
         val choice = when (BossPhaseDetector.currentPhase) {
@@ -149,24 +184,37 @@ object LeapMenuFeatures: Feature(
             }
             BossPhaseDetector.Phase.STORM -> {
                 if (stormEnabled.value) {
-                    if (BossPhaseDetector.isPyActive) pyLeap.value
-                    else if (BossPhaseDetector.isSscActive) sscLeap.value
-                    else 0
+                    when (BossPhaseDetector.stormStep) {
+                        0 -> checkpointLeap.value
+                        1 -> yellowCrusherLeap.value
+                        else -> sscLeap.value
+                    }
                 } else 0
             }
             BossPhaseDetector.Phase.GOLDOR -> {
                 if (goldorEnabled.value) {
                     when (BossPhaseDetector.goldorSection) {
-                        1 -> resolveMultiLeap(BossPhaseDetector.s1LeapCount, s1Leap1.value, s1Leap2.value, s1Leap3.value)
-                        2 -> resolveMultiLeap(BossPhaseDetector.s2LeapCount, s2Leap1.value, s2Leap2.value, s2Leap3.value)
-                        3 -> resolveMultiLeap(BossPhaseDetector.s3LeapCount, s3Leap1.value, s3Leap2.value, s3Leap3.value)
-                        4 -> resolveMultiLeap(BossPhaseDetector.s4LeapCount, s4Leap1.value, s4Leap2.value, 0)
+                        1 -> resolveMultiLeap(BossPhaseDetector.s1LeapIndex, s1Leap1.value, s1Leap2.value, s1Leap3.value, s1Leap4.value)
+                        2 -> resolveMultiLeap(BossPhaseDetector.s2LeapIndex, s2Leap1.value, s2Leap2.value, s2Leap3.value, s2Leap4.value)
+                        3 -> resolveMultiLeap(BossPhaseDetector.s3LeapIndex, s3Leap1.value, s3Leap2.value, s3Leap3.value, s3Leap4.value)
+                        4 -> resolveMultiLeap(BossPhaseDetector.s4LeapIndex, s4Leap1.value, s4Leap2.value, s4Leap3.value, 0)
                         else -> 0
                     }
                 } else 0
             }
+            BossPhaseDetector.Phase.NECRON -> {
+                if (necronEnabled.value) {
+                    if (BossPhaseDetector.isPre4Done && pre4Leap.value > 0) pre4Leap.value
+                    else if (BossPhaseDetector.isMiddleActive && middleLeap.value > 0) middleLeap.value
+                    else 0
+                } else 0
+            }
             BossPhaseDetector.Phase.P5 -> {
-                if (p5Enabled.value && BossPhaseDetector.isRelicWindowActive()) p5RelicLeap.value else 0
+                if (p5Enabled.value) {
+                    if (BossPhaseDetector.isRelicActive && relicLeap.value > 0) relicLeap.value
+                    else if (BossPhaseDetector.isP5StartActive && p5StartLeap.value > 0) p5StartLeap.value
+                    else 0
+                } else 0
             }
             else -> 0
         }
@@ -175,12 +223,10 @@ object LeapMenuFeatures: Feature(
         return DungeonClass.fromName(classOptions[choice])
     }
 
-    private fun resolveMultiLeap(count: Int, leap1: Int, leap2: Int, leap3: Int): Int {
-        return when {
-            count == 0 -> leap1
-            count == 1 -> if (leap2 > 0) leap2 else leap1
-            else -> if (leap3 > 0) leap3 else if (leap2 > 0) leap2 else leap1
-        }
+    private fun resolveMultiLeap(index: Int, l1: Int, l2: Int, l3: Int, l4: Int): Int {
+        val list = listOf(l1, l2, l3, l4).filter { it > 0 }
+        if (list.isEmpty()) return 0
+        return list.getOrElse(index) { list.last() }
     }
 
     fun getTargetPlayerIndex(): Int? {
@@ -221,6 +267,7 @@ object LeapMenuFeatures: Feature(
         )
 
         val hoveredIndex = getHoveredIndex()
+        val targetDungeonClass = getTargetClass()
 
         LeapMenu.players.forEachIndexed { i, entry ->
             if (entry == null) return@forEachIndexed
@@ -252,7 +299,9 @@ object LeapMenuFeatures: Feature(
 
             // Highlight border for target player
             if (isTarget && highlightCorrect.value) {
-                event.context.drawBorder(x, y, boxWidth, boxHeight, highlightColor.value, thickness = 3)
+                val borderCol = if (useClassColor.value) (targetDungeonClass?.color ?: entry.player.clazz.color)
+                else customHighlightColor.value
+                event.context.drawBorder(x, y, boxWidth, boxHeight, borderCol, thickness = 3)
             }
 
             // Draw player head
