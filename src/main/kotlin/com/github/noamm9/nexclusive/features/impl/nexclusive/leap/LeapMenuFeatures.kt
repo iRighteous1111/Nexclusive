@@ -1,6 +1,5 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
-import com.github.noamm9.config.types.ButtonSetting
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SliderSetting
@@ -13,14 +12,9 @@ import com.github.noamm9.features.Feature
 import com.github.noamm9.features.impl.dungeon.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
-import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.location.LocationUtils
-import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawCenteredString
-import com.github.noamm9.utils.render.Render2D.drawFloatingRect
-import com.github.noamm9.utils.render.Render2D.drawPlayerHead
-import com.github.noamm9.utils.render.Render2D.drawString
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
 import net.minecraft.sounds.SoundEvents
@@ -59,45 +53,25 @@ object LeapMenuFeatures: Feature(
     // --- Goldor (Boss 2) ---
     private val goldorEnabled by ToggleSetting("Enable Goldor", true).showIf { selectedBoss.value == 2 }
 
-    // S1
     private val s1LeapsCount by SliderSetting("S1 Leaps Count", 1, 1, 4, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
-    @Suppress("unused")
-    private val addS1Leap = ButtonSetting("+ Add S1 Leap") {
-        if (s1LeapsCount.value < 4) s1LeapsCount.value = s1LeapsCount.value + 1
-    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value < 4 }.apply(configSettings::add)
     private val s1Leap1 by DropdownSetting("S1 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
     private val s1Leap2 by DropdownSetting("S1 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value >= 2 }
     private val s1Leap3 by DropdownSetting("S1 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value >= 3 }
     private val s1Leap4 by DropdownSetting("S1 Leap 4", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s1LeapsCount.value >= 4 }
 
-    // S2
     private val s2LeapsCount by SliderSetting("S2 Leaps Count", 1, 1, 4, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
-    @Suppress("unused")
-    private val addS2Leap = ButtonSetting("+ Add S2 Leap") {
-        if (s2LeapsCount.value < 4) s2LeapsCount.value = s2LeapsCount.value + 1
-    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value < 4 }.apply(configSettings::add)
     private val s2Leap1 by DropdownSetting("S2 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
     private val s2Leap2 by DropdownSetting("S2 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value >= 2 }
     private val s2Leap3 by DropdownSetting("S2 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value >= 3 }
     private val s2Leap4 by DropdownSetting("S2 Leap 4", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s2LeapsCount.value >= 4 }
 
-    // S3
     private val s3LeapsCount by SliderSetting("S3 Leaps Count", 1, 1, 4, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
-    @Suppress("unused")
-    private val addS3Leap = ButtonSetting("+ Add S3 Leap") {
-        if (s3LeapsCount.value < 4) s3LeapsCount.value = s3LeapsCount.value + 1
-    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value < 4 }.apply(configSettings::add)
     private val s3Leap1 by DropdownSetting("S3 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
     private val s3Leap2 by DropdownSetting("S3 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value >= 2 }
     private val s3Leap3 by DropdownSetting("S3 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value >= 3 }
     private val s3Leap4 by DropdownSetting("S3 Leap 4", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s3LeapsCount.value >= 4 }
 
-    // S4
     private val s4LeapsCount by SliderSetting("S4 Leaps Count", 1, 1, 3, 1).showIf { selectedBoss.value == 2 && goldorEnabled.value }
-    @Suppress("unused")
-    private val addS4Leap = ButtonSetting("+ Add S4 Leap") {
-        if (s4LeapsCount.value < 3) s4LeapsCount.value = s4LeapsCount.value + 1
-    }.showIf { selectedBoss.value == 2 && goldorEnabled.value && s4LeapsCount.value < 3 }.apply(configSettings::add)
     private val s4Leap1 by DropdownSetting("S4 Leap 1", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value }
     private val s4Leap2 by DropdownSetting("S4 Leap 2", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s4LeapsCount.value >= 2 }
     private val s4Leap3 by DropdownSetting("S4 Leap 3", 0, classOptions).showIf { selectedBoss.value == 2 && goldorEnabled.value && s4LeapsCount.value >= 3 }
@@ -114,12 +88,9 @@ object LeapMenuFeatures: Feature(
 
     // Runtime state
     private var consecutiveWrongClicks = 0
-    private val boxBg = Color(33, 33, 33)
-    private val boxBgHover = Color(67, 67, 67)
 
-    private val menuScaleSetting by lazy {
-        LeapMenu.configSettings.find { it.name == "Menu Scale" } as? SliderSetting
-    }
+    val menuScale: Float
+        get() = (LeapMenu.configSettings.find { it.name == "Menu Scale" } as? SliderSetting)?.value?.toFloat() ?: 50f
 
     override fun init() {
         BossPhaseDetector.init()
@@ -143,7 +114,19 @@ object LeapMenuFeatures: Feature(
                 return@register
             }
 
-            renderCustomMenu(event, targetIndex)
+            val targetClass = getTargetClass()
+            val borderCol = if (useClassColor.value) (targetClass?.color ?: Color.GREEN) else customHighlightColor.value
+
+            LeapMenuRenderer.render(
+                event,
+                targetIndex,
+                targetClass,
+                changeSize.value,
+                targetScale.value.toFloat(),
+                otherScale.value.toFloat(),
+                highlightCorrect.value,
+                borderCol
+            )
         }
 
         register<ContainerEvent.MouseClick>(EventPriority.HIGHEST) {
@@ -151,7 +134,7 @@ object LeapMenuFeatures: Feature(
             if (! blockWrongLeap.value || event.button != 0) return@register
 
             val targetIndex = getTargetPlayerIndex() ?: return@register
-            val hoveredIndex = getHoveredIndex() ?: return@register
+            val hoveredIndex = LeapMenuRenderer.getHoveredIndex() ?: return@register
 
             if (hoveredIndex != targetIndex) {
                 consecutiveWrongClicks++
@@ -194,10 +177,10 @@ object LeapMenuFeatures: Feature(
             BossPhaseDetector.Phase.GOLDOR -> {
                 if (goldorEnabled.value) {
                     when (BossPhaseDetector.goldorSection) {
-                        1 -> resolveMultiLeap(BossPhaseDetector.s1LeapIndex, s1Leap1.value, s1Leap2.value, s1Leap3.value, s1Leap4.value)
-                        2 -> resolveMultiLeap(BossPhaseDetector.s2LeapIndex, s2Leap1.value, s2Leap2.value, s2Leap3.value, s2Leap4.value)
-                        3 -> resolveMultiLeap(BossPhaseDetector.s3LeapIndex, s3Leap1.value, s3Leap2.value, s3Leap3.value, s3Leap4.value)
-                        4 -> resolveMultiLeap(BossPhaseDetector.s4LeapIndex, s4Leap1.value, s4Leap2.value, s4Leap3.value, 0)
+                        1 -> resolveMultiLeap(BossPhaseDetector.s1LeapIndex, s1Leap1.value, s1Leap2.value, s1Leap3.value, s1Leap4.value, limit = s1LeapsCount.value)
+                        2 -> resolveMultiLeap(BossPhaseDetector.s2LeapIndex, s2Leap1.value, s2Leap2.value, s2Leap3.value, s2Leap4.value, limit = s2LeapsCount.value)
+                        3 -> resolveMultiLeap(BossPhaseDetector.s3LeapIndex, s3Leap1.value, s3Leap2.value, s3Leap3.value, s3Leap4.value, limit = s3LeapsCount.value)
+                        4 -> resolveMultiLeap(BossPhaseDetector.s4LeapIndex, s4Leap1.value, s4Leap2.value, s4Leap3.value, 0, limit = s4LeapsCount.value)
                         else -> 0
                     }
                 } else 0
@@ -223,8 +206,8 @@ object LeapMenuFeatures: Feature(
         return DungeonClass.fromName(classOptions[choice])
     }
 
-    private fun resolveMultiLeap(index: Int, l1: Int, l2: Int, l3: Int, l4: Int): Int {
-        val list = listOf(l1, l2, l3, l4).filter { it > 0 }
+    private fun resolveMultiLeap(index: Int, l1: Int, l2: Int, l3: Int, l4: Int, limit: Int): Int {
+        val list = listOf(l1, l2, l3, l4).take(limit).filter { it > 0 }
         if (list.isEmpty()) return 0
         return list.getOrElse(index) { list.last() }
     }
@@ -235,113 +218,5 @@ object LeapMenuFeatures: Feature(
             entry != null && ! entry.player.isDead && entry.player.clazz == targetClass
         }
         return if (index != - 1) index else null
-    }
-
-    private fun renderCustomMenu(event: ScreenEvent.PreRender, targetIndex: Int?) {
-        Resolution.push(event.context)
-
-        val rawScale = menuScaleSetting?.value?.toFloat() ?: 50f
-        val userScale = (rawScale / 100f) * 2.0f
-        val screenWidth = Resolution.width / userScale
-        val screenHeight = Resolution.height / userScale
-
-        val pose = event.context.pose()
-        pose.pushMatrix()
-        pose.scale(userScale)
-
-        val baseBoxW = 128f * 1.3f
-        val baseBoxH = 80f * 0.8f
-        val padding = 40f
-        val baseHeadSize = 50f
-
-        val gridW = (baseBoxW * 2) + padding
-        val gridH = (baseBoxH * 2) + padding
-        val startX = (screenWidth - gridW) / 2f
-        val startY = (screenHeight - gridH) / 2f
-
-        val slotCenters = listOf(
-            (startX + baseBoxW / 2f) to (startY + baseBoxH / 2f),
-            (startX + baseBoxW + padding + baseBoxW / 2f) to (startY + baseBoxH / 2f),
-            (startX + baseBoxW / 2f) to (startY + baseBoxH + padding + baseBoxH / 2f),
-            (startX + baseBoxW + padding + baseBoxW / 2f) to (startY + baseBoxH + padding + baseBoxH / 2f)
-        )
-
-        val hoveredIndex = getHoveredIndex()
-        val targetDungeonClass = getTargetClass()
-
-        LeapMenu.players.forEachIndexed { i, entry ->
-            if (entry == null) return@forEachIndexed
-
-            val isTarget = i == targetIndex
-            val scaleFactor = if (changeSize.value) {
-                if (isTarget) targetScale.value.toFloat()
-                else if (targetIndex != null) otherScale.value.toFloat()
-                else 1.0f
-            } else 1.0f
-
-            val boxWidth = baseBoxW * scaleFactor
-            val boxHeight = baseBoxH * scaleFactor
-            val headSize = (baseHeadSize * scaleFactor).toInt()
-
-            val (cx, cy) = slotCenters[i]
-            val x = cx - (boxWidth / 2f)
-            val y = cy - (boxHeight / 2f)
-            val isHovered = i == hoveredIndex
-
-            val baseBg = when {
-                entry.player.isDead -> boxBg.withAlpha(210)
-                isHovered -> boxBgHover
-                else -> boxBg
-            }
-
-            // Draw card background
-            event.context.drawFloatingRect(x, y, boxWidth, boxHeight, baseBg.withAlpha(190))
-
-            // Highlight border for target player
-            if (isTarget && highlightCorrect.value) {
-                val borderCol = if (useClassColor.value) (targetDungeonClass?.color ?: entry.player.clazz.color)
-                else customHighlightColor.value
-                event.context.drawBorder(x, y, boxWidth, boxHeight, borderCol, thickness = 3)
-            }
-
-            // Draw player head
-            val headX = (x + (10f * scaleFactor)).toInt()
-            val headY = (y + (boxHeight / 2f) - (headSize / 2f)).toInt()
-
-            event.context.drawPlayerHead(headX, headY, headSize, entry.player.skin)
-            event.context.drawBorder(headX, headY, headSize, headSize, entry.player.clazz.color)
-
-            // Draw text info
-            val textX = (x + (10f * scaleFactor) + headSize + (5f * scaleFactor)).toInt()
-            val textY = (y + (boxHeight / 2f) - mc.font.lineHeight).toInt()
-
-            event.context.drawString(entry.player.name, textX, textY + 2, entry.player.clazz.color)
-
-            val statusText = when {
-                entry.player.isDead -> "§cDEAD"
-                isTarget && highlightCorrect.value -> "§a★ TARGET"
-                else -> entry.player.clazz.name
-            }
-            event.context.drawString(statusText, textX, textY + 12, entry.player.clazz.color)
-        }
-
-        pose.popMatrix()
-        Resolution.pop(event.context)
-    }
-
-    private fun getHoveredIndex(): Int? {
-        val window = mc.window
-        val cx = window.screenWidth / 2
-        val cy = window.screenHeight / 2
-        val mx = mc.mouseHandler.xpos()
-        val my = mc.mouseHandler.ypos()
-
-        return when {
-            mx < cx && my < cy -> 0
-            mx > cx && my < cy -> 1
-            mx < cx && my > cy -> 2
-            mx > cx && my > cy -> 3
-            else -> null
-        }
     }
 }
