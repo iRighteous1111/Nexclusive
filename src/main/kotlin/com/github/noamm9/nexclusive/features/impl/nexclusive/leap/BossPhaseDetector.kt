@@ -50,8 +50,33 @@ object BossPhaseDetector {
 
     private var p5StartTime = 0L
     private var relicPickupTime = 0L
+    private var gateDestroyedThisSection = false
     private val pre4Box = AABB(62.0, 127.0, 34.0, 65.0, 130.0, 37.0)
     private val termRegex = Regex("^(.{1,16}) (activated|completed) a (terminal|lever|device)! \\((\\d)/(\\d)\\)$")
+
+    val playerSection: Int?
+        get() {
+            val player = mc.player ?: return null
+            val x = player.x
+            val z = player.z
+            return when {
+                x in 89.0..113.0 && z in 30.0..122.0 -> 1
+                x in 19.0..111.0 && z in 121.0..145.0 -> 2
+                x in -6.0..19.0 && z in 51.0..143.0 -> 3
+                x in -2.0..90.0 && z in 27.0..51.0 -> 4
+                else -> null
+            }
+        }
+
+    fun isInPre4(): Boolean {
+        val player = mc.player ?: return false
+        return pre4Box.contains(player.position()) || playerSection == 4
+    }
+
+    fun isInP3Section(): Boolean {
+        val player = mc.player ?: return false
+        return player.y <= 155.0 && playerSection != null
+    }
 
     fun init() {
         EventBus.register<WorldChangeEvent> { reset() }
@@ -75,7 +100,7 @@ object BossPhaseDetector {
             val text = packet.text.unformattedText
 
             if (text == "The gate has been destroyed!" || text == "The gate will open in 5 seconds!") {
-                if (currentPhase == Phase.GOLDOR && goldorSection < 4) goldorSection++
+                onGateDestroyed()
             }
         }
     }
@@ -104,7 +129,8 @@ object BossPhaseDetector {
                 else if (oofCount >= 2) stormStep = 2
             }
             "[BOSS] Storm: I should have known that I stood no chance." -> stormStep = 2
-            "[BOSS] Goldor: Who dares trespass into my domain?" -> { currentPhase = Phase.GOLDOR; goldorSection = 1; resetGoldorIndices() }
+            "[BOSS] Goldor: Who dares trespass into my domain?" -> { currentPhase = Phase.GOLDOR; goldorSection = 1; gateDestroyedThisSection = false; resetGoldorIndices() }
+            "The gate has been destroyed!" -> onGateDestroyed()
             "The Core entrance is opening!" -> goldorSection = 4
             "[BOSS] Necron: I'm afraid, your journey ends now." -> currentPhase = Phase.NECRON
             "[BOSS] Necron: That's a very impressive trick. I guess I'll have to handle this myself." -> isMiddleActive = true
@@ -113,7 +139,7 @@ object BossPhaseDetector {
 
         termRegex.find(msg)?.destructured?.let { (_, _, _, cur, tot) ->
             if (cur.toIntOrNull() == tot.toIntOrNull() && cur.toIntOrNull() != null && currentPhase == Phase.GOLDOR && goldorSection < 4) {
-                goldorSection++
+                gateDestroyedThisSection = false
             }
         }
 
@@ -127,28 +153,25 @@ object BossPhaseDetector {
         }
     }
 
+    private fun onGateDestroyed() {
+        if (currentPhase == Phase.GOLDOR && goldorSection < 4 && ! gateDestroyedThisSection) {
+            goldorSection++
+            gateDestroyedThisSection = true
+        }
+    }
+
     private fun updateStage() {
         val player = mc.player ?: return
         val y = player.y
 
-        val phaseFromY = when {
-            y > 210 -> Phase.MAXOR
-            y > 155 -> Phase.STORM
-            y > 100 -> Phase.GOLDOR
-            y > 45 -> Phase.NECRON
-            else -> Phase.P5
-        }
-        if (currentPhase != phaseFromY) currentPhase = phaseFromY
-
-        if (currentPhase == Phase.GOLDOR) {
-            val sec = when {
-                player.x in 89.0..113.0 && player.z in 30.0..122.0 -> 1
-                player.x in 19.0..111.0 && player.z in 121.0..145.0 -> 2
-                player.x in -6.0..19.0 && player.z in 51.0..143.0 -> 3
-                player.x in -2.0..90.0 && player.z in 27.0..51.0 -> 4
-                else -> null
+        if (currentPhase == Phase.NONE) {
+            currentPhase = when {
+                y > 210 -> Phase.MAXOR
+                y > 155 -> Phase.STORM
+                y > 100 -> Phase.GOLDOR
+                y > 45 -> Phase.NECRON
+                else -> Phase.P5
             }
-            if (sec != null && sec > goldorSection) goldorSection = sec
         }
 
         if (isP5StartActive && System.currentTimeMillis() - p5StartTime > 5000L) isP5StartActive = false
@@ -165,6 +188,7 @@ object BossPhaseDetector {
         stormStep = 0
         oofCount = 0
         goldorSection = 1
+        gateDestroyedThisSection = false
         resetGoldorIndices()
         isMiddleActive = false
         isPre4Done = false

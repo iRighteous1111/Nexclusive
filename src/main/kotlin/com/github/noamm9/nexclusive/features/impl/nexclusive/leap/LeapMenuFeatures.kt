@@ -37,7 +37,9 @@ object LeapMenuFeatures: Feature(
     private val overrideClicks by SliderSetting("Override Clicks", 3, 1, 10, 1).showIf { blockWrongLeap.value }
 
     // 2. Boss Selection Mode Menu
-    private val selectedBoss by DropdownSetting("Boss Section", 0, listOf("Maxor", "Storm", "Goldor", "Necron", "P5 (M7)")).section("Boss Targets")
+    private val selectedBoss by DropdownSetting(
+        "Boss Section", 0, listOf("Maxor", "Storm", "Goldor", "Necron", "P5 (M7)", "Misc Leap")
+    ).section("Boss Targets")
     private val classOptions = listOf("None", "Archer", "Mage", "Berserk", "Healer", "Tank")
 
     // --- Maxor (Boss 0) ---
@@ -85,6 +87,11 @@ object LeapMenuFeatures: Feature(
     private val p5Enabled by ToggleSetting("Enable P5", true).showIf { selectedBoss.value == 4 }
     private val p5StartLeap by DropdownSetting("P5 Start Leap", 0, classOptions).showIf { selectedBoss.value == 4 && p5Enabled.value }
     private val relicLeap by DropdownSetting("Relic Leap", 0, classOptions).showIf { selectedBoss.value == 4 && p5Enabled.value }
+
+    // --- Misc Leap (Boss 5) ---
+    private val miscEnabled by ToggleSetting("Enable Misc Leap", true).showIf { selectedBoss.value == 5 }
+    private val i4Leap by DropdownSetting("I4 Leap", 0, classOptions).showIf { selectedBoss.value == 5 && miscEnabled.value }
+    private val pdLeap by DropdownSetting("PD Leap", 0, classOptions).showIf { selectedBoss.value == 5 && miscEnabled.value }
 
     // Runtime state
     private var consecutiveWrongClicks = 0
@@ -161,6 +168,24 @@ object LeapMenuFeatures: Feature(
     fun getTargetClass(): DungeonClass? {
         if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return null
 
+        // 1. Check Misc Leaps (I4 / PD) if enabled
+        if (miscEnabled.value) {
+            // I4 Leap: Goldor S1 active and player is in S4 / Pre4
+            if (i4Leap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.GOLDOR && BossPhaseDetector.goldorSection == 1) {
+                if (BossPhaseDetector.isInPre4()) {
+                    return DungeonClass.fromName(classOptions[i4Leap.value])
+                }
+            }
+
+            // PD Leap: Storm active and player is in P3 sections (S1-S4)
+            if (pdLeap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.STORM) {
+                if (BossPhaseDetector.isInP3Section()) {
+                    return DungeonClass.fromName(classOptions[pdLeap.value])
+                }
+            }
+        }
+
+        // 2. Boss-specific progression leaps
         val choice = when (BossPhaseDetector.currentPhase) {
             BossPhaseDetector.Phase.MAXOR -> {
                 if (maxorEnabled.value && ! BossPhaseDetector.isMaxorDead) maxorLeap.value else 0
