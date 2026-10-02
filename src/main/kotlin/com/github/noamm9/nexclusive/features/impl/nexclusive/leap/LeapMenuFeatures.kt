@@ -29,6 +29,9 @@ object LeapMenuFeatures: Feature(
     private val useClassColor by ToggleSetting("Use Class Color for Highlight", true).showIf { highlightCorrect.value }
     private val customHighlightColor by ColorSetting("Custom Highlight Color", Color(0, 255, 120, 220), true).showIf { highlightCorrect.value && ! useClassColor.value }
 
+    private val darkenOthers by ToggleSetting("Darken Others", true)
+    private val darkenFactor by SliderSetting("Darken Factor", 0.5, 0.1, 0.9, 0.05).showIf { darkenOthers.value }
+
     private val changeSize by ToggleSetting("Change Size", true)
     private val targetScale by SliderSetting("Target Scale", 1.25, 1.0, 2.0, 0.05).showIf { changeSize.value }
     private val otherScale by SliderSetting("Other Scale", 0.65, 0.1, 1.0, 0.05).showIf { changeSize.value }
@@ -111,7 +114,7 @@ object LeapMenuFeatures: Feature(
             if (! isApplicable(event.screen)) return@register
 
             val targetIndex = getTargetPlayerIndex()
-            if (targetIndex == null && ! changeSize.value && ! highlightCorrect.value) return@register
+            if (targetIndex == null && ! changeSize.value && ! highlightCorrect.value && ! darkenOthers.value) return@register
 
             event.isCanceled = true
             LeapMenu.updateLeapMenu()
@@ -125,14 +128,16 @@ object LeapMenuFeatures: Feature(
             val borderCol = if (useClassColor.value) (targetClass?.color ?: Color.GREEN) else customHighlightColor.value
 
             LeapMenuRenderer.render(
-                event,
-                targetIndex,
-                targetClass,
-                changeSize.value,
-                targetScale.value.toFloat(),
-                otherScale.value.toFloat(),
-                highlightCorrect.value,
-                borderCol
+                event = event,
+                targetIndex = targetIndex,
+                targetClass = targetClass,
+                changeSize = changeSize.value,
+                targetScale = targetScale.value.toFloat(),
+                otherScale = otherScale.value.toFloat(),
+                highlightCorrect = highlightCorrect.value,
+                borderCol = borderCol,
+                darkenOthers = darkenOthers.value,
+                darkenFactor = darkenFactor.value.toFloat()
             )
         }
 

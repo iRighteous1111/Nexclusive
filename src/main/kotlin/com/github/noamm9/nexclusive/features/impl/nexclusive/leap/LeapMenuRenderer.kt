@@ -3,11 +3,13 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 import com.github.noamm9.event.impl.ScreenEvent
 import com.github.noamm9.features.impl.dungeon.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
+import com.github.noamm9.utils.ColorUtils.lerp
 import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawFloatingRect
 import com.github.noamm9.utils.render.Render2D.drawPlayerHead
+import com.github.noamm9.utils.render.Render2D.drawRect
 import com.github.noamm9.utils.render.Render2D.drawString
 import net.minecraft.client.Minecraft
 import java.awt.Color
@@ -25,7 +27,9 @@ object LeapMenuRenderer {
         targetScale: Float,
         otherScale: Float,
         highlightCorrect: Boolean,
-        borderCol: Color
+        borderCol: Color,
+        darkenOthers: Boolean,
+        darkenFactor: Float
     ) {
         Resolution.push(event.context)
 
@@ -76,24 +80,40 @@ object LeapMenuRenderer {
             val y = cy - (boxHeight / 2f)
             val isHovered = i == hoveredIndex
 
-            val baseBg = when {
-                entry.player.isDead -> boxBg.withAlpha(210)
-                isHovered -> boxBgHover
-                else -> boxBg
+            // Determine card background: fill cell with highlight color if target
+            val cardBg = if (isTarget && highlightCorrect) {
+                val alpha = if (borderCol.alpha in 1..254) borderCol.alpha else 180
+                val finalAlpha = if (isHovered) (alpha + 35).coerceAtMost(255) else alpha
+                borderCol.withAlpha(finalAlpha)
+            } else {
+                val base = when {
+                    entry.player.isDead -> boxBg.withAlpha(210)
+                    isHovered -> boxBgHover
+                    else -> boxBg
+                }
+                if (targetIndex != null && darkenOthers && ! isTarget) {
+                    base.lerp(Color.BLACK, darkenFactor.coerceIn(0f, 1f)).withAlpha(190)
+                } else {
+                    base.withAlpha(190)
+                }
             }
 
-            event.context.drawFloatingRect(x, y, boxWidth, boxHeight, baseBg.withAlpha(190))
+            // 1. Draw card background (filled)
+            event.context.drawFloatingRect(x, y, boxWidth, boxHeight, cardBg)
 
+            // If target, draw a crisp highlight border around the filled card
             if (isTarget && highlightCorrect) {
-                event.context.drawBorder(x, y, boxWidth, boxHeight, borderCol, thickness = 3)
+                event.context.drawBorder(x, y, boxWidth, boxHeight, borderCol, thickness = 2)
             }
 
+            // 2. Draw player head
             val headX = (x + (10f * scaleFactor)).toInt()
             val headY = (y + (boxHeight / 2f) - (headSize / 2f)).toInt()
 
             event.context.drawPlayerHead(headX, headY, headSize, entry.player.skin)
             event.context.drawBorder(headX, headY, headSize, headSize, entry.player.clazz.color)
 
+            // 3. Draw text info
             val textX = (x + (10f * scaleFactor) + headSize + (5f * scaleFactor)).toInt()
             val textY = (y + (boxHeight / 2f) - mc.font.lineHeight).toInt()
 
@@ -105,6 +125,12 @@ object LeapMenuRenderer {
                 else -> entry.player.clazz.name
             }
             event.context.drawString(statusText, textX, textY + 12, entry.player.clazz.color)
+
+            // 4. Darken non-target cell overlay
+            if (targetIndex != null && darkenOthers && ! isTarget) {
+                val overlayAlpha = (darkenFactor.coerceIn(0f, 1f) * 255).toInt()
+                event.context.drawRect(x, y, boxWidth, boxHeight, Color.BLACK.withAlpha(overlayAlpha))
+            }
         }
 
         pose.popMatrix()
