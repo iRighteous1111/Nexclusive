@@ -75,10 +75,10 @@ object LeapMenuFeatures: Feature(
         if (s1Count.value > 1) s1Count.value = s1Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value > 1 }.section("§aSection 1 (S1)").apply(configSettings::add)
 
-    private val s1Leap1 by MultiCheckboxSetting("S1 Leap 1", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§aSection 1 (S1)")
-    private val s1Leap2 by MultiCheckboxSetting("S1 Leap 2", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 2 }.section("§aSection 1 (S1)")
-    private val s1Leap3 by MultiCheckboxSetting("S1 Leap 3", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 3 }.section("§aSection 1 (S1)")
-    private val s1Leap4 by MultiCheckboxSetting("S1 Leap 4", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 4 }.section("§aSection 1 (S1)")
+    private val s1Leap1 by MultiCheckboxSetting("S1 Leap 1", defaultClasses()).jsonName("s1_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§aSection 1 (S1)")
+    private val s1Leap2 by MultiCheckboxSetting("S1 Leap 2", defaultClasses()).jsonName("s1_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 2 }.section("§aSection 1 (S1)")
+    private val s1Leap3 by MultiCheckboxSetting("S1 Leap 3", defaultClasses()).jsonName("s1_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 3 }.section("§aSection 1 (S1)")
+    private val s1Leap4 by MultiCheckboxSetting("S1 Leap 4", defaultClasses()).jsonName("s1_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 4 }.section("§aSection 1 (S1)")
 
     // Section 2
     private val s2Count = SliderSetting("s2_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
@@ -91,10 +91,10 @@ object LeapMenuFeatures: Feature(
         if (s2Count.value > 1) s2Count.value = s2Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value > 1 }.section("§eSection 2 (S2)").apply(configSettings::add)
 
-    private val s2Leap1 by MultiCheckboxSetting("S2 Leap 1", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§eSection 2 (S2)")
-    private val s2Leap2 by MultiCheckboxSetting("S2 Leap 2", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 2 }.section("§eSection 2 (S2)")
-    private val s2Leap3 by MultiCheckboxSetting("S2 Leap 3", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 3 }.section("§eSection 2 (S2)")
-    private val s2Leap4 by MultiCheckboxSetting("S2 Leap 4", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 4 }.section("§eSection 2 (S2)")
+    private val s2Leap1 by MultiCheckboxSetting("S2 Leap 1", defaultClasses()).jsonName("s2_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§eSection 2 (S2)")
+    private val s2Leap2 by MultiCheckboxSetting("S2 Leap 2", defaultClasses()).jsonName("s2_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 2 }.section("§eSection 2 (S2)")
+    private val s2Leap3 by MultiCheckboxSetting("S2 Leap 3", defaultClasses()).jsonName("s2_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 3 }.section("§eSection 2 (S2)")
+    private val s2Leap4 by MultiCheckboxSetting("S2 Leap 4", defaultClasses()).jsonName("s2_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 4 }.section("§eSection 2 (S2)")
 
     // Section 3
     private val s3Count = SliderSetting("s3_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
@@ -107,10 +107,10 @@ object LeapMenuFeatures: Feature(
         if (s3Count.value > 1) s3Count.value = s3Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value > 1 }.section("§cSection 3 (S3)").apply(configSettings::add)
 
-    private val s3Leap1 by MultiCheckboxSetting("S3 Leap 1", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§cSection 3 (S3)")
-    private val s3Leap2 by MultiCheckboxSetting("S3 Leap 2", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 2 }.section("§cSection 3 (S3)")
-    private val s3Leap3 by MultiCheckboxSetting("S3 Leap 3", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 3 }.section("§cSection 3 (S3)")
-    private val s3Leap4 by MultiCheckboxSetting("S3 Leap 4", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 4 }.section("§cSection 3 (S3)")
+    private val s3Leap1 by MultiCheckboxSetting("S3 Leap 1", defaultClasses()).jsonName("s3_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§cSection 3 (S3)")
+    private val s3Leap2 by MultiCheckboxSetting("S3 Leap 2", defaultClasses()).jsonName("s3_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 2 }.section("§cSection 3 (S3)")
+    private val s3Leap3 by MultiCheckboxSetting("S3 Leap 3", defaultClasses()).jsonName("s3_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 3 }.section("§cSection 3 (S3)")
+    private val s3Leap4 by MultiCheckboxSetting("S3 Leap 4", defaultClasses()).jsonName("s3_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 4 }.section("§cSection 3 (S3)")
 
     // Section 4
     private val s4Count = SliderSetting("s4_count", 1, 1, 3, 1).hideIf { true }.apply(configSettings::add)
@@ -123,9 +123,9 @@ object LeapMenuFeatures: Feature(
         if (s4Count.value > 1) s4Count.value = s4Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value > 1 }.section("§bSection 4 (S4)").apply(configSettings::add)
 
-    private val s4Leap1 by MultiCheckboxSetting("S4 Leap 1", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§bSection 4 (S4)")
-    private val s4Leap2 by MultiCheckboxSetting("S4 Leap 2", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 2 }.section("§bSection 4 (S4)")
-    private val s4Leap3 by MultiCheckboxSetting("S4 Leap 3", defaultClasses()).showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 3 }.section("§bSection 4 (S4)")
+    private val s4Leap1 by MultiCheckboxSetting("S4 Leap 1", defaultClasses()).jsonName("s4_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§bSection 4 (S4)")
+    private val s4Leap2 by MultiCheckboxSetting("S4 Leap 2", defaultClasses()).jsonName("s4_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 2 }.section("§bSection 4 (S4)")
+    private val s4Leap3 by MultiCheckboxSetting("S4 Leap 3", defaultClasses()).jsonName("s4_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 3 }.section("§bSection 4 (S4)")
 
     // --- P5 (Boss 3) ---
     private val p5Enabled by ToggleSetting("Enable P5", true).showIf { selectedBoss.value == 3 }
