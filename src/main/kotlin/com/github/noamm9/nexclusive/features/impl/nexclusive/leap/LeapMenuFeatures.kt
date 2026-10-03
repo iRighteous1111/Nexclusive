@@ -113,6 +113,8 @@ object LeapMenuFeatures: Feature(
         register<ScreenEvent.PreRender>(EventPriority.HIGHEST) {
             if (! isApplicable(event.screen)) return@register
 
+            BossPhaseDetector.recordLeapSection()
+
             val targetIndex = getTargetPlayerIndex()
             if (targetIndex == null && ! changeSize.value && ! highlightCorrect.value && ! darkenOthers.value) return@register
 
@@ -206,7 +208,8 @@ object LeapMenuFeatures: Feature(
             }
             BossPhaseDetector.Phase.GOLDOR -> {
                 if (goldorEnabled.value) {
-                    when (BossPhaseDetector.goldorSection) {
+                    val sec = BossPhaseDetector.playerSection ?: BossPhaseDetector.goldorSection
+                    when (sec) {
                         1 -> resolveMultiLeap(BossPhaseDetector.s1LeapIndex, s1Leap1.value, s1Leap2.value, s1Leap3.value, s1Leap4.value, limit = s1LeapsCount.value)
                         2 -> resolveMultiLeap(BossPhaseDetector.s2LeapIndex, s2Leap1.value, s2Leap2.value, s2Leap3.value, s2Leap4.value, limit = s2LeapsCount.value)
                         3 -> resolveMultiLeap(BossPhaseDetector.s3LeapIndex, s3Leap1.value, s3Leap2.value, s3Leap3.value, s3Leap4.value, limit = s3LeapsCount.value)

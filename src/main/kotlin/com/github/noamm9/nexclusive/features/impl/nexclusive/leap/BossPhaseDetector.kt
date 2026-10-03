@@ -29,6 +29,8 @@ object BossPhaseDetector {
     // Goldor section tracking (1..4)
     var goldorSection = 1
         private set
+    var lastLeapSection = 1
+        private set
     var s1LeapIndex = 0
         private set
     var s2LeapIndex = 0
@@ -67,6 +69,10 @@ object BossPhaseDetector {
                 else -> null
             }
         }
+
+    fun recordLeapSection() {
+        lastLeapSection = playerSection ?: goldorSection
+    }
 
     fun isInPre4(): Boolean {
         val player = mc.player ?: return false
@@ -109,7 +115,7 @@ object BossPhaseDetector {
         if (msg.startsWith("You have teleported to ") && msg.endsWith("!")) {
             when (currentPhase) {
                 Phase.STORM -> if (stormStep < 2) stormStep++
-                Phase.GOLDOR -> when (goldorSection) {
+                Phase.GOLDOR -> when (lastLeapSection) {
                     1 -> s1LeapIndex++
                     2 -> s2LeapIndex++
                     3 -> s3LeapIndex++
@@ -180,6 +186,7 @@ object BossPhaseDetector {
 
     private fun resetGoldorIndices() {
         s1LeapIndex = 0; s2LeapIndex = 0; s3LeapIndex = 0; s4LeapIndex = 0
+        lastLeapSection = 1
     }
 
     fun reset() {
@@ -188,6 +195,7 @@ object BossPhaseDetector {
         stormStep = 0
         oofCount = 0
         goldorSection = 1
+        lastLeapSection = 1
         gateDestroyedThisSection = false
         resetGoldorIndices()
         isMiddleActive = false
