@@ -215,12 +215,10 @@ object LeapMenuFeatures: Feature(
 
         // 1. Check Misc Leaps (I4 / PD) if enabled
         if (miscEnabled.value) {
-            // I4 Leap: Goldor S1 active and player is in S4 / Pre4
-            if (i4Leap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.GOLDOR && BossPhaseDetector.goldorSection == 1) {
-                if (BossPhaseDetector.isInPre4()) {
-                    val c = DungeonClass.fromName(classOptions[i4Leap.value])
-                    return if (c != DungeonClass.Empty) setOf(c) else emptySet()
-                }
+            // I4 Leap: Goldor active, player is at I4/Pre4, and device 4 is completed
+            if (i4Leap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.GOLDOR && BossPhaseDetector.isI4Done) {
+                val c = DungeonClass.fromName(classOptions[i4Leap.value])
+                return if (c != DungeonClass.Empty) setOf(c) else emptySet()
             }
 
             // PD Leap: Storm active and player is in P3 sections (S1-S4)

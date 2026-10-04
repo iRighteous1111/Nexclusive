@@ -5,9 +5,11 @@ import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
 import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
+import com.github.noamm9.features.impl.floor7.devices.I4Helper
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.location.LocationUtils
 import net.minecraft.client.Minecraft
+import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
 import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket
 import net.minecraft.world.phys.AABB
 
@@ -45,6 +47,8 @@ object BossPhaseDetector {
         private set
     var isPre4Done = false
         private set
+    var isI4Done = false
+        private set
     var isP5StartActive = false
         private set
     var isRelicActive = false
@@ -76,7 +80,7 @@ object BossPhaseDetector {
 
     fun isInPre4(): Boolean {
         val player = mc.player ?: return false
-        return pre4Box.contains(player.position()) || playerSection == 4
+        return I4Helper.isOnDev() || pre4Box.contains(player.position())
     }
 
     fun isInP3Section(): Boolean {
@@ -109,10 +113,22 @@ object BossPhaseDetector {
                 onGateDestroyed()
             }
         }
+
+        EventBus.register<MainThreadPacketReceivedEvent.Post> {
+            if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return@register
+            if (currentPhase != Phase.GOLDOR || isI4Done) return@register
+            val packet = event.packet as? ClientboundSetEntityDataPacket ?: return@register
+            val level = mc.level ?: return@register
+            if (I4Helper.isOnDev() && level.getEntity(packet.id)?.name?.string == "Active") {
+                isI4Done = true
+                isPre4Done = true
+            }
+        }
     }
 
     private fun handleChat(msg: String) {
         if (msg.startsWith("You have teleported to ") && msg.endsWith("!")) {
+            isI4Done = false
             when (currentPhase) {
                 Phase.STORM -> if (stormStep < 2) stormStep++
                 Phase.GOLDOR -> when (lastLeapSection) {
@@ -149,8 +165,12 @@ object BossPhaseDetector {
             }
         }
 
-        if (msg.contains("completed a device!") && pre4Box.contains(mc.player?.position() ?: return)) {
-            isPre4Done = true
+        if (msg.contains("completed a device!")) {
+            val isUser = I4Helper.DEVICE_DONE_REGEX.find(msg)?.groupValues?.get(1) == mc.user.name
+            if (isUser && (I4Helper.isOnDev() || pre4Box.contains(mc.player?.position() ?: return))) {
+                isI4Done = true
+                isPre4Done = true
+            }
         }
 
         if (msg.contains("picked the Corrupted") && msg.contains("Relic!")) {
@@ -200,6 +220,7 @@ object BossPhaseDetector {
         resetGoldorIndices()
         isMiddleActive = false
         isPre4Done = false
+        isI4Done = false
         isP5StartActive = false
         isRelicActive = false
         p5StartTime = 0L
