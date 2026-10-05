@@ -7,9 +7,6 @@
     "MixinCategoryType"
   ],
   "client": [
-    "MixinGuiMessage",
-    "MixinGuiMessageLine",
-    "MixinChatComponent",
     "MixinMouseHandler"
   ],
   "injectors": {
