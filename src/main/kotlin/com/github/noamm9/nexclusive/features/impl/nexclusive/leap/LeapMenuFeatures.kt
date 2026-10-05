@@ -1,6 +1,7 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
 import com.github.noamm9.config.types.ButtonSetting
+import com.github.noamm9.nexclusive.ui.PlusMinusSetting
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.MultiCheckboxSetting
@@ -67,13 +68,14 @@ object LeapMenuFeatures: Feature(
     // Section 1
     private val s1Count = SliderSetting("s1_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS1Leap = ButtonSetting("(+) Add Leap") {
-        if (s1Count.value < 4) s1Count.value = s1Count.value + 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value < 4 }.section("§aSection 1 (S1)").apply(configSettings::add)
-    @Suppress("unused")
-    private val removeS1Leap = ButtonSetting("(-) Remove Leap") {
-        if (s1Count.value > 1) s1Count.value = s1Count.value - 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value > 1 }.section("§aSection 1 (S1)").apply(configSettings::add)
+    private val s1Controls = PlusMinusSetting(
+        name = "s1_controls",
+        countSupplier = { s1Count.value },
+        minCount = 1,
+        maxCount = 4,
+        onAdd = { if (s1Count.value < 4) s1Count.value = s1Count.value + 1 },
+        onRemove = { if (s1Count.value > 1) s1Count.value = s1Count.value - 1 }
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§aSection 1 (S1)").apply(configSettings::add)
 
     private val s1Leap1 by MultiCheckboxSetting("S1 Leap 1", defaultClasses()).jsonName("s1_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§aSection 1 (S1)")
     private val s1Leap2 by MultiCheckboxSetting("S1 Leap 2", defaultClasses()).jsonName("s1_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 2 }.section("§aSection 1 (S1)")
@@ -83,13 +85,14 @@ object LeapMenuFeatures: Feature(
     // Section 2
     private val s2Count = SliderSetting("s2_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS2Leap = ButtonSetting("(+) Add Leap") {
-        if (s2Count.value < 4) s2Count.value = s2Count.value + 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value < 4 }.section("§eSection 2 (S2)").apply(configSettings::add)
-    @Suppress("unused")
-    private val removeS2Leap = ButtonSetting("(-) Remove Leap") {
-        if (s2Count.value > 1) s2Count.value = s2Count.value - 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value > 1 }.section("§eSection 2 (S2)").apply(configSettings::add)
+    private val s2Controls = PlusMinusSetting(
+        name = "s2_controls",
+        countSupplier = { s2Count.value },
+        minCount = 1,
+        maxCount = 4,
+        onAdd = { if (s2Count.value < 4) s2Count.value = s2Count.value + 1 },
+        onRemove = { if (s2Count.value > 1) s2Count.value = s2Count.value - 1 }
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§eSection 2 (S2)").apply(configSettings::add)
 
     private val s2Leap1 by MultiCheckboxSetting("S2 Leap 1", defaultClasses()).jsonName("s2_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§eSection 2 (S2)")
     private val s2Leap2 by MultiCheckboxSetting("S2 Leap 2", defaultClasses()).jsonName("s2_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 2 }.section("§eSection 2 (S2)")
@@ -99,13 +102,14 @@ object LeapMenuFeatures: Feature(
     // Section 3
     private val s3Count = SliderSetting("s3_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS3Leap = ButtonSetting("(+) Add Leap") {
-        if (s3Count.value < 4) s3Count.value = s3Count.value + 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value < 4 }.section("§cSection 3 (S3)").apply(configSettings::add)
-    @Suppress("unused")
-    private val removeS3Leap = ButtonSetting("(-) Remove Leap") {
-        if (s3Count.value > 1) s3Count.value = s3Count.value - 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value > 1 }.section("§cSection 3 (S3)").apply(configSettings::add)
+    private val s3Controls = PlusMinusSetting(
+        name = "s3_controls",
+        countSupplier = { s3Count.value },
+        minCount = 1,
+        maxCount = 4,
+        onAdd = { if (s3Count.value < 4) s3Count.value = s3Count.value + 1 },
+        onRemove = { if (s3Count.value > 1) s3Count.value = s3Count.value - 1 }
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§cSection 3 (S3)").apply(configSettings::add)
 
     private val s3Leap1 by MultiCheckboxSetting("S3 Leap 1", defaultClasses()).jsonName("s3_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§cSection 3 (S3)")
     private val s3Leap2 by MultiCheckboxSetting("S3 Leap 2", defaultClasses()).jsonName("s3_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 2 }.section("§cSection 3 (S3)")
@@ -115,13 +119,14 @@ object LeapMenuFeatures: Feature(
     // Section 4
     private val s4Count = SliderSetting("s4_count", 1, 1, 3, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS4Leap = ButtonSetting("(+) Add Leap") {
-        if (s4Count.value < 3) s4Count.value = s4Count.value + 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value < 3 }.section("§bSection 4 (S4)").apply(configSettings::add)
-    @Suppress("unused")
-    private val removeS4Leap = ButtonSetting("(-) Remove Leap") {
-        if (s4Count.value > 1) s4Count.value = s4Count.value - 1
-    }.showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value > 1 }.section("§bSection 4 (S4)").apply(configSettings::add)
+    private val s4Controls = PlusMinusSetting(
+        name = "s4_controls",
+        countSupplier = { s4Count.value },
+        minCount = 1,
+        maxCount = 3,
+        onAdd = { if (s4Count.value < 3) s4Count.value = s4Count.value + 1 },
+        onRemove = { if (s4Count.value > 1) s4Count.value = s4Count.value - 1 }
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§bSection 4 (S4)").apply(configSettings::add)
 
     private val s4Leap1 by MultiCheckboxSetting("S4 Leap 1", defaultClasses()).jsonName("s4_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§bSection 4 (S4)")
     private val s4Leap2 by MultiCheckboxSetting("S4 Leap 2", defaultClasses()).jsonName("s4_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 2 }.section("§bSection 4 (S4)")

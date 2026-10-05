@@ -7,7 +7,8 @@
     "MixinCategoryType"
   ],
   "client": [
-    "MixinMouseHandler"
+    "MixinMouseHandler",
+    "MixinWidgetFactory"
   ],
   "injectors": {
     "defaultRequire": 1
