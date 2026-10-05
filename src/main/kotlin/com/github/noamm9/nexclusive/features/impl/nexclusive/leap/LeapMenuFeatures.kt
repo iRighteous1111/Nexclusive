@@ -67,11 +67,11 @@ object LeapMenuFeatures: Feature(
     // Section 1
     private val s1Count = SliderSetting("s1_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS1Leap = ButtonSetting("+ Add Leap (S1)") {
+    private val addS1Leap = ButtonSetting("(+) Add Leap") {
         if (s1Count.value < 4) s1Count.value = s1Count.value + 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value < 4 }.section("§aSection 1 (S1)").apply(configSettings::add)
     @Suppress("unused")
-    private val removeS1Leap = ButtonSetting("- Remove Leap (S1)") {
+    private val removeS1Leap = ButtonSetting("(-) Remove Leap") {
         if (s1Count.value > 1) s1Count.value = s1Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value > 1 }.section("§aSection 1 (S1)").apply(configSettings::add)
 
@@ -83,11 +83,11 @@ object LeapMenuFeatures: Feature(
     // Section 2
     private val s2Count = SliderSetting("s2_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS2Leap = ButtonSetting("+ Add Leap (S2)") {
+    private val addS2Leap = ButtonSetting("(+) Add Leap") {
         if (s2Count.value < 4) s2Count.value = s2Count.value + 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value < 4 }.section("§eSection 2 (S2)").apply(configSettings::add)
     @Suppress("unused")
-    private val removeS2Leap = ButtonSetting("- Remove Leap (S2)") {
+    private val removeS2Leap = ButtonSetting("(-) Remove Leap") {
         if (s2Count.value > 1) s2Count.value = s2Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value > 1 }.section("§eSection 2 (S2)").apply(configSettings::add)
 
@@ -99,11 +99,11 @@ object LeapMenuFeatures: Feature(
     // Section 3
     private val s3Count = SliderSetting("s3_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS3Leap = ButtonSetting("+ Add Leap (S3)") {
+    private val addS3Leap = ButtonSetting("(+) Add Leap") {
         if (s3Count.value < 4) s3Count.value = s3Count.value + 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value < 4 }.section("§cSection 3 (S3)").apply(configSettings::add)
     @Suppress("unused")
-    private val removeS3Leap = ButtonSetting("- Remove Leap (S3)") {
+    private val removeS3Leap = ButtonSetting("(-) Remove Leap") {
         if (s3Count.value > 1) s3Count.value = s3Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value > 1 }.section("§cSection 3 (S3)").apply(configSettings::add)
 
@@ -115,11 +115,11 @@ object LeapMenuFeatures: Feature(
     // Section 4
     private val s4Count = SliderSetting("s4_count", 1, 1, 3, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
-    private val addS4Leap = ButtonSetting("+ Add Leap (S4)") {
+    private val addS4Leap = ButtonSetting("(+) Add Leap") {
         if (s4Count.value < 3) s4Count.value = s4Count.value + 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value < 3 }.section("§bSection 4 (S4)").apply(configSettings::add)
     @Suppress("unused")
-    private val removeS4Leap = ButtonSetting("- Remove Leap (S4)") {
+    private val removeS4Leap = ButtonSetting("(-) Remove Leap") {
         if (s4Count.value > 1) s4Count.value = s4Count.value - 1
     }.showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value > 1 }.section("§bSection 4 (S4)").apply(configSettings::add)
 
