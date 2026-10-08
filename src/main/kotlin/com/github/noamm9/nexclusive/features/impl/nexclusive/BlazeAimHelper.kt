@@ -16,6 +16,8 @@ import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.PlayerUtils
+import com.github.noamm9.utils.dungeons.DungeonListener
+import com.github.noamm9.utils.dungeons.enums.Puzzle
 import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.RenderHelper.renderVec
@@ -60,7 +62,6 @@ object BlazeAimHelper : Feature(
     private val aimCooldown by SliderSetting("Aim Cooldown", 1.0, 0.0, 5.0, 0.1, "s")
         .withDescription("Time before re-aiming at the same blaze. Set to 0 to continuously aim.")
 
-    private val blazeHpRegex = Regex("""^\[Lv\d+].+Blaze [\d,]+/([\d,]+)❤$""")
     private val blazes = CopyOnWriteArrayList<Blaze>()
     private val hpMap = ConcurrentHashMap<Int, Int>()
 
@@ -72,20 +73,69 @@ object BlazeAimHelper : Feature(
     private var aimLockStartTime = 0L
     private var lastFrameTime = 0L
 
-    private fun isInBlazeRoom(): Boolean {
-        if (!LocationUtils.inDungeon) return false
-        val currentRoomName = ScanUtils.currentRoom?.name
-        if (currentRoomName != null) {
-            val inRoom = currentRoomName.contains("Blaze", ignoreCase = true)
-            inBlazeRoom = inRoom
-            reversed = currentRoomName.equals("Lower Blaze", ignoreCase = true)
-            return inRoom
+    private fun isBlazeArmorStand(armorStand: ArmorStand): Boolean {
+        val name = armorStand.customName?.unformattedText ?: return false
+        return name.contains("Blaze", ignoreCase = true) && Regex("""[\d,]+/[\d,]+""").containsMatchIn(name)
+    }
+
+    private fun hasNearbyBlazeArmorStands(): Boolean {
+        val lvl = mc.level ?: return false
+        val p = mc.player ?: return false
+        return lvl.entitiesForRendering()
+            .filterIsInstance<ArmorStand>()
+            .any { it.distanceToSqr(p) <= 45.0 * 45.0 && isBlazeArmorStand(it) }
+    }
+
+    private fun updateRoomState() {
+        val room = ScanUtils.currentRoom ?: runCatching { ScanUtils.getRoomFromPos(player.position()) }.getOrNull()
+        val roomName = room?.name
+
+        if (roomName != null && roomName.contains("Blaze", ignoreCase = true)) {
+            inBlazeRoom = true
+            reversed = roomName.contains("Lower", ignoreCase = true)
+            return
         }
+
+        val hasEntities = hasNearbyBlazeArmorStands() || blazes.any { it.isAlive && !it.isRemoved }
+        if (hasEntities) {
+            inBlazeRoom = true
+            val isLowerPuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE }
+            val isHigherPuzzle = DungeonListener.puzzles.any { it == Puzzle.HIGHER_BLAZE }
+            reversed = when {
+                isLowerPuzzle -> true
+                isHigherPuzzle -> false
+                else -> {
+                    val pY = player.y
+                    val blazeY = blazes.firstOrNull()?.y ?: pY
+                    pY < 95.0 || blazeY < 95.0
+                }
+            }
+            return
+        }
+
+        if (inBlazeRoom && !hasEntities) {
+            inBlazeRoom = false
+            resetAimState()
+        }
+    }
+
+    private fun isInBlazeRoom(): Boolean {
+        updateRoomState()
         return inBlazeRoom
+    }
+
+    private fun parseBlazeHealth(armorStand: ArmorStand): Int? {
+        val name = armorStand.customName?.unformattedText ?: return null
+        if (!name.contains("Blaze", ignoreCase = true)) return null
+        val match = Regex("""[\d,]+/([\d,]+)""").find(name) ?: return null
+        return match.groupValues[1].replace(",", "").toIntOrNull()
     }
 
     private fun hasLineOfSight(eyePos: Vec3, targetPos: Vec3): Boolean {
         var start = eyePos
+        val totalDistSq = eyePos.distanceToSqr(targetPos)
+        if (totalDistSq < 0.01) return true
+
         val dir = targetPos.subtract(eyePos).normalize()
         var iterations = 0
 
@@ -99,7 +149,7 @@ object BlazeAimHelper : Feature(
             if (state.block == Blocks.IRON_BARS) {
                 val hitLoc = hit.location
                 val nextStart = hitLoc.add(dir.scale(0.1))
-                if (nextStart.distanceToSqr(eyePos) >= eyePos.distanceToSqr(targetPos)) {
+                if (nextStart.distanceToSqr(eyePos) >= totalDistSq) {
                     return true
                 }
                 if (nextStart.distanceToSqr(start) < 0.0001) {
@@ -141,6 +191,32 @@ object BlazeAimHelper : Feature(
         return false
     }
 
+    private fun scanBlazes() {
+        val currentLevel = mc.level ?: return
+        val p = mc.player ?: return
+
+        val armorStands = currentLevel.entitiesForRendering()
+            .filterIsInstance<ArmorStand>()
+            .filter { it.distanceToSqr(p) <= 45.0 * 45.0 }
+
+        for (armorStand in armorStands) {
+            val health = parseBlazeHealth(armorStand) ?: continue
+            val blaze = currentLevel.getEntitiesOfClass(
+                Blaze::class.java,
+                armorStand.boundingBox.inflate(1.5, 3.0, 1.5)
+            ).minByOrNull { it.distanceToSqr(armorStand) } ?: continue
+
+            hpMap[blaze.id] = health
+            if (blaze !in blazes) {
+                blazes.add(blaze)
+            }
+        }
+
+        blazes.removeIf { !it.isAlive || it.isRemoved }
+        blazes.sortBy { hpMap[it.id] ?: Int.MAX_VALUE }
+        if (reversed) blazes.reverse()
+    }
+
     override fun init() {
         register<WorldChangeEvent> {
             resetAll()
@@ -161,40 +237,19 @@ object BlazeAimHelper : Feature(
         }
 
         register<TickEvent.Start> {
-            if (!isInBlazeRoom()) {
+            updateRoomState()
+            if (!inBlazeRoom) {
                 if (blazes.isNotEmpty()) blazes.clear()
                 if (hpMap.isNotEmpty()) hpMap.clear()
                 return@register
             }
-
-            val currentLevel = mc.level ?: return@register
-            val armorStands = currentLevel.entitiesForRendering().filterIsInstance<ArmorStand>()
-
-            for (armorStand in armorStands) {
-                val name = armorStand.customName?.unformattedText ?: continue
-                val match = blazeHpRegex.find(name) ?: continue
-                val health = match.groupValues[1].replace(",", "").toIntOrNull() ?: continue
-
-                val blaze = currentLevel.getEntitiesOfClass(
-                    Blaze::class.java,
-                    armorStand.boundingBox.expandTowards(0.0, -2.0, 0.0)
-                ).firstOrNull() ?: continue
-
-                if (blaze in blazes || hpMap.containsKey(blaze.id)) continue
-
-                hpMap[blaze.id] = health
-                blazes.add(blaze)
-            }
-
-            blazes.removeIf { !it.isAlive || it.isRemoved }
-            blazes.sortBy { hpMap[it.id] ?: Int.MAX_VALUE }
-            if (reversed) blazes.reverse()
+            scanBlazes()
         }
 
         register<RenderOverlayEvent> {
             if (!drawCircle.value) return@register
+            if (mc.screen != null) return@register
             if (!isInBlazeRoom()) return@register
-            if (blazes.none { it.isAlive && !it.isRemoved }) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
@@ -204,6 +259,11 @@ object BlazeAimHelper : Feature(
             if (!isInBlazeRoom()) {
                 resetAimState()
                 return@register
+            }
+
+            // Ensure blazes list is populated even if tick hasn't fired yet
+            if (blazes.isEmpty()) {
+                scanBlazes()
             }
 
             val p = mc.player ?: return@register
