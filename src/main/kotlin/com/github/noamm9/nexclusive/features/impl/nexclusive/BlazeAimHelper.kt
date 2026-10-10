@@ -3,11 +3,15 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
+import com.github.noamm9.event.impl.CheckEntityGlowEvent
 import com.github.noamm9.event.impl.DungeonEvent
+import com.github.noamm9.event.impl.MouseClickEvent
+import com.github.noamm9.event.impl.PlayerInteractEvent
 import com.github.noamm9.event.impl.RenderOverlayEvent
 import com.github.noamm9.event.impl.RenderWorldEvent
 import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
+import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
@@ -19,10 +23,12 @@ import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.enums.Puzzle
 import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
+import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.RenderHelper.renderVec
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.entity.monster.Blaze
+import net.minecraft.world.item.Items
 import net.minecraft.world.level.ClipContext
 import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.HitResult
@@ -64,6 +70,7 @@ object BlazeAimHelper : Feature(
 
     private val blazes = CopyOnWriteArrayList<Blaze>()
     private val hpMap = ConcurrentHashMap<Int, Int>()
+    private val shotBlazes = ConcurrentHashMap<Int, Long>()
 
     private var inBlazeRoom = false
     private var reversed = false
@@ -72,6 +79,16 @@ object BlazeAimHelper : Feature(
     private var currentAimingBlazeId: Int? = null
     private var aimLockStartTime = 0L
     private var lastFrameTime = 0L
+    private var lastShotTime = 0L
+
+    private fun isHoldingBow(): Boolean {
+        val p = mc.player ?: return false
+        val held = p.mainHandItem
+        if (held.isEmpty) return false
+        if (held.`is`(Items.BOW)) return true
+        val id = held.skyblockId
+        return id.contains("BOW") || id == "TERMINATOR"
+    }
 
     private fun isBlazeArmorStand(armorStand: ArmorStand): Boolean {
         val name = armorStand.customName?.unformattedText ?: return false
@@ -129,6 +146,43 @@ object BlazeAimHelper : Feature(
         if (!name.contains("Blaze", ignoreCase = true)) return null
         val match = Regex("""[\d,]+/([\d,]+)""").find(name) ?: return null
         return match.groupValues[1].replace(",", "").toIntOrNull()
+    }
+
+    private fun getTargetBlaze(): Blaze? {
+        val now = System.currentTimeMillis()
+        shotBlazes.entries.removeIf { (id, shotTime) ->
+            now - shotTime > 3000L || blazes.none { it.id == id && it.isAlive && !it.isRemoved }
+        }
+        return blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
+    }
+
+    private fun isLookingAtBlaze(blaze: Blaze, eyePos: Vec3): Boolean {
+        if (mc.crosshairPickEntity?.id == blaze.id) return true
+        val lookVec = MathUtils.getLookVec(player.yRot, player.xRot)
+        val rayEnd = eyePos.add(lookVec.scale(60.0))
+        val bb = blaze.boundingBox.inflate(0.05)
+        return bb.clip(eyePos, rayEnd).isPresent
+    }
+
+    private fun handleShoot() {
+        val now = System.currentTimeMillis()
+        if (now - lastShotTime < 100L) return
+        if (!isInBlazeRoom() || !isHoldingBow()) return
+
+        val p = mc.player ?: return
+        val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
+        val target = getTargetBlaze() ?: return
+
+        val isLooking = isLookingAtBlaze(target, eyePos)
+        val screenPos = ProjectionUtils.worldToScreen(target.position().add(0.0, target.bbHeight / 2.0, 0.0))
+        val isNearScreen = screenPos != null && CircleRenderer.distanceToCenter(screenPos) <= helperRadius.value
+
+        if (isLooking || isNearScreen) {
+            lastShotTime = now
+            shotBlazes[target.id] = now
+            currentAimingBlazeId = null
+            aimLockStartTime = 0L
+        }
     }
 
     private fun hasLineOfSight(eyePos: Vec3, targetPos: Vec3): Boolean {
@@ -236,11 +290,32 @@ object BlazeAimHelper : Feature(
             }
         }
 
+        register<PlayerInteractEvent.RIGHT_CLICK.AIR> { handleShoot() }
+        register<PlayerInteractEvent.RIGHT_CLICK.ENTITY> { handleShoot() }
+        register<PlayerInteractEvent.RIGHT_CLICK.BLOCK> { handleShoot() }
+        register<MouseClickEvent> {
+            if (event.button == 1 && event.action == 1) {
+                handleShoot()
+            }
+        }
+
+        register<CheckEntityGlowEvent>(priority = EventPriority.HIGH) {
+            if (!isInBlazeRoom()) return@register
+            val blaze = event.entity as? Blaze ?: return@register
+            val target = getTargetBlaze() ?: return@register
+
+            if (blaze.id == target.id) {
+                event.color = Color.GREEN
+                event.shouldGlow = true
+            }
+        }
+
         register<TickEvent.Start> {
             updateRoomState()
             if (!inBlazeRoom) {
                 if (blazes.isNotEmpty()) blazes.clear()
                 if (hpMap.isNotEmpty()) hpMap.clear()
+                if (shotBlazes.isNotEmpty()) shotBlazes.clear()
                 return@register
             }
             scanBlazes()
@@ -249,19 +324,18 @@ object BlazeAimHelper : Feature(
         register<RenderOverlayEvent> {
             if (!drawCircle.value) return@register
             if (mc.screen != null) return@register
-            if (!isInBlazeRoom()) return@register
+            if (!isInBlazeRoom() || !isHoldingBow()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
             if (mc.screen != null) return@register
-            if (!isInBlazeRoom()) {
+            if (!isInBlazeRoom() || !isHoldingBow()) {
                 resetAimState()
                 return@register
             }
 
-            // Ensure blazes list is populated even if tick hasn't fired yet
             if (blazes.isEmpty()) {
                 scanBlazes()
             }
@@ -269,9 +343,16 @@ object BlazeAimHelper : Feature(
             val p = mc.player ?: return@register
             val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
 
-            val targetBlaze = blazes.firstOrNull { it.isAlive && !it.isRemoved }
+            val targetBlaze = getTargetBlaze()
             if (targetBlaze == null) {
                 resetAimState()
+                return@register
+            }
+
+            // 1-) If crosshair is already on the target blaze, do NOT pull aim to center
+            if (isLookingAtBlaze(targetBlaze, eyePos)) {
+                aimLockStartTime = 0L
+                lastFrameTime = 0L
                 return@register
             }
 
@@ -383,6 +464,7 @@ object BlazeAimHelper : Feature(
         blazeAimedTimes.clear()
         blazes.clear()
         hpMap.clear()
+        shotBlazes.clear()
         inBlazeRoom = false
         reversed = false
     }
