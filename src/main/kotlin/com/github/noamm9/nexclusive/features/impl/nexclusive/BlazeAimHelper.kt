@@ -3,7 +3,6 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
-import com.github.noamm9.event.impl.CheckEntityGlowEvent
 import com.github.noamm9.event.impl.DungeonEvent
 import com.github.noamm9.event.impl.MouseClickEvent
 import com.github.noamm9.event.impl.PlayerInteractEvent
@@ -11,7 +10,6 @@ import com.github.noamm9.event.impl.RenderOverlayEvent
 import com.github.noamm9.event.impl.RenderWorldEvent
 import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
-import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
@@ -74,6 +72,7 @@ object BlazeAimHelper : Feature(
 
     private var inBlazeRoom = false
     private var reversed = false
+    private var targetBlaze: Blaze? = null
 
     private val blazeAimedTimes = HashMap<Int, Long>()
     private var currentAimingBlazeId: Int? = null
@@ -90,20 +89,30 @@ object BlazeAimHelper : Feature(
         return id.contains("BOW") || id == "TERMINATOR"
     }
 
-    private fun isBlazeArmorStand(armorStand: ArmorStand): Boolean {
-        val name = armorStand.customName?.unformattedText ?: return false
-        return name.contains("Blaze", ignoreCase = true) && Regex("""[\d,]+/[\d,]+""").containsMatchIn(name)
+    private fun isBlazeArmorStand(name: String): Boolean {
+        if (!name.contains("Blaze", ignoreCase = true)) return false
+        val slashIndex = name.indexOf('/')
+        return slashIndex != -1 && slashIndex > 0 && slashIndex < name.length - 1
     }
 
     private fun hasNearbyBlazeArmorStands(): Boolean {
         val lvl = mc.level ?: return false
         val p = mc.player ?: return false
-        return lvl.entitiesForRendering()
-            .filterIsInstance<ArmorStand>()
-            .any { it.distanceToSqr(p) <= 45.0 * 45.0 && isBlazeArmorStand(it) }
+        for (entity in lvl.entitiesForRendering()) {
+            if (entity is ArmorStand && entity.distanceToSqr(p) <= 45.0 * 45.0) {
+                val name = entity.customName?.unformattedText ?: continue
+                if (isBlazeArmorStand(name)) return true
+            }
+        }
+        return false
     }
 
     private fun updateRoomState() {
+        if (!LocationUtils.inDungeon) {
+            if (inBlazeRoom) resetAll()
+            return
+        }
+
         val room = ScanUtils.currentRoom ?: runCatching { ScanUtils.getRoomFromPos(player.position()) }.getOrNull()
         val roomName = room?.name
 
@@ -113,7 +122,7 @@ object BlazeAimHelper : Feature(
             return
         }
 
-        val hasEntities = hasNearbyBlazeArmorStands() || blazes.any { it.isAlive && !it.isRemoved }
+        val hasEntities = (blazes.isNotEmpty() && blazes.any { it.isAlive && !it.isRemoved }) || hasNearbyBlazeArmorStands()
         if (hasEntities) {
             inBlazeRoom = true
             val isLowerPuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE }
@@ -130,30 +139,37 @@ object BlazeAimHelper : Feature(
             return
         }
 
-        if (inBlazeRoom && !hasEntities) {
+        if (inBlazeRoom) {
             inBlazeRoom = false
             resetAimState()
+            blazes.clear()
+            hpMap.clear()
+            shotBlazes.clear()
+            targetBlaze = null
         }
     }
 
-    private fun isInBlazeRoom(): Boolean {
-        updateRoomState()
-        return inBlazeRoom
-    }
-
-    private fun parseBlazeHealth(armorStand: ArmorStand): Int? {
-        val name = armorStand.customName?.unformattedText ?: return null
+    private fun parseBlazeHealth(name: String): Int? {
         if (!name.contains("Blaze", ignoreCase = true)) return null
-        val match = Regex("""[\d,]+/([\d,]+)""").find(name) ?: return null
-        return match.groupValues[1].replace(",", "").toIntOrNull()
+        val slashIndex = name.indexOf('/')
+        if (slashIndex == -1) return null
+
+        var end = slashIndex + 1
+        while (end < name.length && (name[end].isDigit() || name[end] == ',')) {
+            end++
+        }
+        if (end <= slashIndex + 1) return null
+
+        val hpStr = name.substring(slashIndex + 1, end).replace(",", "")
+        return hpStr.toIntOrNull()
     }
 
-    private fun getTargetBlaze(): Blaze? {
+    private fun updateTargetBlaze() {
         val now = System.currentTimeMillis()
         shotBlazes.entries.removeIf { (id, shotTime) ->
             now - shotTime > 3000L || blazes.none { it.id == id && it.isAlive && !it.isRemoved }
         }
-        return blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
+        targetBlaze = blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
     }
 
     private fun isLookingAtBlaze(blaze: Blaze, eyePos: Vec3): Boolean {
@@ -165,13 +181,13 @@ object BlazeAimHelper : Feature(
     }
 
     private fun handleShoot() {
+        if (!inBlazeRoom || !isHoldingBow()) return
         val now = System.currentTimeMillis()
         if (now - lastShotTime < 100L) return
-        if (!isInBlazeRoom() || !isHoldingBow()) return
 
         val p = mc.player ?: return
         val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
-        val target = getTargetBlaze() ?: return
+        val target = targetBlaze ?: return
 
         val isLooking = isLookingAtBlaze(target, eyePos)
         val screenPos = ProjectionUtils.worldToScreen(target.position().add(0.0, target.bbHeight / 2.0, 0.0))
@@ -182,6 +198,7 @@ object BlazeAimHelper : Feature(
             shotBlazes[target.id] = now
             currentAimingBlazeId = null
             aimLockStartTime = 0L
+            updateTargetBlaze()
         }
     }
 
@@ -235,10 +252,8 @@ object BlazeAimHelper : Feature(
             val otherDistSq = eyePos.distanceToSqr(otherHit)
 
             if (otherDistSq < distToTargetSq) {
-                // Another blaze is between player and target blaze
                 if (hasLineOfSight(eyePos, otherHit)) return true
             } else {
-                // Another blaze is behind target blaze in the same line of fire
                 if (hasLineOfSight(targetPos, otherHit)) return true
             }
         }
@@ -249,16 +264,15 @@ object BlazeAimHelper : Feature(
         val currentLevel = mc.level ?: return
         val p = mc.player ?: return
 
-        val armorStands = currentLevel.entitiesForRendering()
-            .filterIsInstance<ArmorStand>()
-            .filter { it.distanceToSqr(p) <= 45.0 * 45.0 }
+        for (entity in currentLevel.entitiesForRendering()) {
+            if (entity !is ArmorStand || entity.distanceToSqr(p) > 45.0 * 45.0) continue
+            val name = entity.customName?.unformattedText ?: continue
+            val health = parseBlazeHealth(name) ?: continue
 
-        for (armorStand in armorStands) {
-            val health = parseBlazeHealth(armorStand) ?: continue
             val blaze = currentLevel.getEntitiesOfClass(
                 Blaze::class.java,
-                armorStand.boundingBox.inflate(1.5, 3.0, 1.5)
-            ).minByOrNull { it.distanceToSqr(armorStand) } ?: continue
+                entity.boundingBox.inflate(1.5, 3.0, 1.5)
+            ).minByOrNull { it.distanceToSqr(entity) } ?: continue
 
             hpMap[blaze.id] = health
             if (blaze !in blazes) {
@@ -269,6 +283,7 @@ object BlazeAimHelper : Feature(
         blazes.removeIf { !it.isAlive || it.isRemoved }
         blazes.sortBy { hpMap[it.id] ?: Int.MAX_VALUE }
         if (reversed) blazes.reverse()
+        updateTargetBlaze()
     }
 
     override fun init() {
@@ -287,6 +302,10 @@ object BlazeAimHelper : Feature(
             if (event.room.name.contains("Blaze", ignoreCase = true)) {
                 inBlazeRoom = false
                 resetAimState()
+                blazes.clear()
+                hpMap.clear()
+                shotBlazes.clear()
+                targetBlaze = null
             }
         }
 
@@ -299,64 +318,44 @@ object BlazeAimHelper : Feature(
             }
         }
 
-        register<CheckEntityGlowEvent>(priority = EventPriority.HIGH) {
-            if (!isInBlazeRoom()) return@register
-            val blaze = event.entity as? Blaze ?: return@register
-            val target = getTargetBlaze() ?: return@register
-
-            if (blaze.id == target.id) {
-                event.color = Color.GREEN
-                event.shouldGlow = true
-            }
-        }
-
         register<TickEvent.Start> {
             updateRoomState()
-            if (!inBlazeRoom) {
-                if (blazes.isNotEmpty()) blazes.clear()
-                if (hpMap.isNotEmpty()) hpMap.clear()
-                if (shotBlazes.isNotEmpty()) shotBlazes.clear()
-                return@register
-            }
+            if (!inBlazeRoom) return@register
             scanBlazes()
         }
 
         register<RenderOverlayEvent> {
             if (!drawCircle.value) return@register
             if (mc.screen != null) return@register
-            if (!isInBlazeRoom() || !isHoldingBow()) return@register
+            if (!inBlazeRoom || !isHoldingBow()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
             if (mc.screen != null) return@register
-            if (!isInBlazeRoom() || !isHoldingBow()) {
+            if (!inBlazeRoom || !isHoldingBow()) {
                 resetAimState()
                 return@register
             }
 
-            if (blazes.isEmpty()) {
-                scanBlazes()
+            val target = targetBlaze
+            if (target == null) {
+                resetAimState()
+                return@register
             }
 
             val p = mc.player ?: return@register
             val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
 
-            val targetBlaze = getTargetBlaze()
-            if (targetBlaze == null) {
-                resetAimState()
-                return@register
-            }
-
             // 1-) If crosshair is already on the target blaze, do NOT pull aim to center
-            if (isLookingAtBlaze(targetBlaze, eyePos)) {
+            if (isLookingAtBlaze(target, eyePos)) {
                 aimLockStartTime = 0L
                 lastFrameTime = 0L
                 return@register
             }
 
-            val bb = targetBlaze.boundingBox
+            val bb = target.boundingBox
             val height = bb.maxY - bb.minY
             val clampedOffset = hitboxOffset.value.coerceIn(-1.0, 1.0)
             val factor = 0.5 + 0.5 * clampedOffset
@@ -368,7 +367,7 @@ object BlazeAimHelper : Feature(
                 return@register
             }
 
-            if (isLineBlockedByOtherBlaze(eyePos, targetPos, targetBlaze.id)) {
+            if (isLineBlockedByOtherBlaze(eyePos, targetPos, target.id)) {
                 resetAimState()
                 return@register
             }
@@ -383,12 +382,12 @@ object BlazeAimHelper : Feature(
             val cooldownMs = (aimCooldown.value * 1000.0).toLong()
             val aimDurationMs = (aimDuration.value * 1000.0).toLong()
 
-            if (cooldownMs > 0L && now - (blazeAimedTimes[targetBlaze.id] ?: 0L) < cooldownMs) {
+            if (cooldownMs > 0L && now - (blazeAimedTimes[target.id] ?: 0L) < cooldownMs) {
                 return@register
             }
 
-            if (targetBlaze.id != currentAimingBlazeId) {
-                currentAimingBlazeId = targetBlaze.id
+            if (target.id != currentAimingBlazeId) {
+                currentAimingBlazeId = target.id
                 aimLockStartTime = 0L
                 lastFrameTime = 0L
             }
@@ -400,7 +399,7 @@ object BlazeAimHelper : Feature(
                     PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                     return@register
                 }
-                blazeAimedTimes[targetBlaze.id] = now
+                blazeAimedTimes[target.id] = now
                 currentAimingBlazeId = null
                 aimLockStartTime = 0L
                 return@register
@@ -419,7 +418,7 @@ object BlazeAimHelper : Feature(
                 PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                 aimLockStartTime = now
                 if (aimDurationMs <= 0L) {
-                    blazeAimedTimes[targetBlaze.id] = now
+                    blazeAimedTimes[target.id] = now
                     currentAimingBlazeId = null
                     aimLockStartTime = 0L
                 }
@@ -440,7 +439,7 @@ object BlazeAimHelper : Feature(
                 PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                 aimLockStartTime = now
                 if (aimDurationMs <= 0L) {
-                    blazeAimedTimes[targetBlaze.id] = now
+                    blazeAimedTimes[target.id] = now
                     currentAimingBlazeId = null
                     aimLockStartTime = 0L
                 }
@@ -465,6 +464,7 @@ object BlazeAimHelper : Feature(
         blazes.clear()
         hpMap.clear()
         shotBlazes.clear()
+        targetBlaze = null
         inBlazeRoom = false
         reversed = false
     }
