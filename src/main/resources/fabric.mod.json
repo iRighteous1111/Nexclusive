@@ -24,7 +24,7 @@
     "fabricloader": ">=${loader_version}",
     "fabric-language-kotlin": ">=${kotlin_loader_version}",
     "fabric-api": "*",
-    "noammaddons": ">=1.2.8 <=1.2.9",
+    "noammaddons": ">=1.2.8",
     "minecraft": "${minecraft_version}"
   }
 }
