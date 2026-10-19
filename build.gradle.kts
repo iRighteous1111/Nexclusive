@@ -79,6 +79,8 @@ tasks.withType<KotlinCompile>().configureEach {
 }
 
 tasks.jar {
+    archiveVersion.set("${project.property("mod_version")}-${project.property("minecraft_version")}")
+
     from("LICENSE") {
         rename { "${it}_${project.base.archivesName.get()}" }
     }
