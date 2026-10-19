@@ -9,6 +9,7 @@ import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
+import com.github.noamm9.nexclusive.utils.ScreenUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.MathUtils
@@ -174,7 +175,7 @@ object LeverHelper: Feature(
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
 
             val p = mc.player ?: return@register
-            if (mc.screen == null) {
+            if (! ScreenUtils.isScreenOpen) {
                 val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
                 if (getNearbyLevers(eyePos).isEmpty()) return@register
             }
@@ -183,7 +184,7 @@ object LeverHelper: Feature(
         }
 
         register<RenderWorldEvent> {
-            if (mc.screen != null) return@register
+            if (ScreenUtils.isScreenOpen) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
 
             val p = mc.player ?: return@register

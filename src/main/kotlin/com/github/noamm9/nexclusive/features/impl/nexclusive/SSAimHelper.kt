@@ -13,6 +13,7 @@ import com.github.noamm9.features.Feature
 import com.github.noamm9.features.impl.floor7.devices.SimonSays
 import com.github.noamm9.nexclusive.features.impl.nexclusive.ss.*
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
+import com.github.noamm9.nexclusive.utils.ScreenUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
@@ -59,7 +60,7 @@ object SSAimHelper: Feature(
     val isThresholdLocking get() = ThresholdMode.isLocking
 
     fun shouldSuppressMouseInput(dx: Double, dy: Double): Boolean {
-        if (! enabled || mc.screen != null || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice() || ! SimonSaysBridge.isDeviceInClickingPhase()) {
+        if (! enabled || ScreenUtils.isScreenOpen || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice() || ! SimonSaysBridge.isDeviceInClickingPhase()) {
             resetTurnState()
             return false
         }
@@ -95,12 +96,12 @@ object SSAimHelper: Feature(
 
         register<RenderOverlayEvent> {
             if (! SimonSays.enabled || mode.value == 2 || ! drawCircle.value) return@register
-            if (! SimonSaysBridge.isAtSSDevice() && mc.screen !is ClickGuiScreen) return@register
+            if (! SimonSaysBridge.isAtSSDevice() && ScreenUtils.currentScreen !is ClickGuiScreen) return@register
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
-            if (mc.screen != null || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice()) return@register
+            if (ScreenUtils.isScreenOpen || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice()) return@register
             if (! SimonSaysBridge.isDeviceInClickingPhase()) return@register resetAimState()
 
             val targetButton = SimonSaysBridge.getValidButton() ?: return@register resetAimState()
