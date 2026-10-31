@@ -1,5 +1,6 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
+import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.event.EventBus
 import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
@@ -7,15 +8,12 @@ import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.impl.floor7.devices.I4Helper
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.location.LocationUtils
-import net.minecraft.client.Minecraft
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
 import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket
-import net.minecraft.world.phys.AABB
 
 object BossPhaseDetector {
-    private val mc get() = Minecraft.getInstance()
-
     enum class Phase { NONE, MAXOR, STORM, GOLDOR, NECRON, P5 }
 
     var currentPhase = Phase.NONE
@@ -57,7 +55,7 @@ object BossPhaseDetector {
     private var p5StartTime = 0L
     private var relicPickupTime = 0L
     private var gateDestroyedThisSection = false
-    private val pre4Box = AABB(62.0, 127.0, 34.0, 65.0, 130.0, 37.0)
+    private val pre4Box = MathUtils.aabb(62, 127, 34, 65, 130, 37)
     private val termRegex = Regex("^(.{1,16}) (activated|completed) a (terminal|lever|device)! \\((\\d)/(\\d)\\)$")
 
     val playerSection: Int?

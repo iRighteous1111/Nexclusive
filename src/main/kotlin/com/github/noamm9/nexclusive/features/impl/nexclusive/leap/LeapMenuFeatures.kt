@@ -15,6 +15,7 @@ import com.github.noamm9.features.Feature
 import com.github.noamm9.features.impl.dungeon.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
+import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.Render2D.drawCenteredString
@@ -147,6 +148,20 @@ object LeapMenuFeatures: Feature(
     val menuScale: Float
         get() = (LeapMenu.configSettings.find { it.name == "Menu Scale" } as? SliderSetting)?.value?.toFloat() ?: 50f
 
+    val showLastDoorOpener: Boolean
+        get() = (LeapMenu.configSettings.find { it.name == "Show Last Door Opener" } as? ToggleSetting)?.value == true
+
+    val tintDeadPlayers: Boolean
+        get() = (LeapMenu.configSettings.find { it.name == "Tint Dead Players" } as? ToggleSetting)?.value ?: true
+
+    val highlightInCore: Boolean
+        get() = (LeapMenu.configSettings.find { it.name == "Highlight Players in core" } as? ToggleSetting)?.value == true
+
+    fun isCoreHighlightActive(): Boolean {
+        if (! highlightInCore) return false
+        return DungeonListener.dungeonTeammatesNoSelf.any { LeapMenuRenderer.isPlayerInCore(it) }
+    }
+
     override fun init() {
         BossPhaseDetector.init()
 
@@ -159,12 +174,13 @@ object LeapMenuFeatures: Feature(
             if (! isApplicable(event.screen)) return@register
 
             BossPhaseDetector.recordLeapSection()
+            LeapMenu.updateLeapMenu()
 
-            val targetIndices = getTargetPlayerIndices().toSet()
-            if (targetIndices.isEmpty() && ! changeSize.value && ! highlightCorrect.value && ! darkenOthers.value) return@register
+            val coreActive = isCoreHighlightActive()
+            val targetIndices = if (coreActive) emptySet() else getTargetPlayerIndices().toSet()
+            if (targetIndices.isEmpty() && ! coreActive) return@register
 
             event.isCanceled = true
-            LeapMenu.updateLeapMenu()
 
             if (LeapMenu.players.filterNotNull().isEmpty()) {
                 event.context.drawCenteredString("§4§lNo players found", Resolution.width / 2, Resolution.height / 2)
@@ -292,6 +308,7 @@ object LeapMenuFeatures: Feature(
     }
 
     fun getTargetPlayerIndices(): List<Int> {
+        if (isCoreHighlightActive()) return emptyList()
         val targetClasses = getTargetClasses()
         if (targetClasses.isEmpty()) return emptyList()
         return LeapMenu.players.mapIndexedNotNull { i, entry ->

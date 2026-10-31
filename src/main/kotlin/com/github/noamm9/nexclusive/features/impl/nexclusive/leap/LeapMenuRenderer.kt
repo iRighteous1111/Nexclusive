@@ -1,22 +1,40 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
+import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.event.impl.ScreenEvent
 import com.github.noamm9.features.impl.dungeon.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ColorUtils.lerp
 import com.github.noamm9.utils.ColorUtils.withAlpha
+import com.github.noamm9.utils.MathUtils
+import com.github.noamm9.utils.dungeons.DungeonListener
+import com.github.noamm9.utils.dungeons.DungeonPlayer
 import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawFloatingRect
 import com.github.noamm9.utils.render.Render2D.drawPlayerHead
 import com.github.noamm9.utils.render.Render2D.drawRect
 import com.github.noamm9.utils.render.Render2D.drawString
-import net.minecraft.client.Minecraft
 import java.awt.Color
 
 object LeapMenuRenderer {
-    private val mc get() = Minecraft.getInstance()
     private val boxBg = Color(33, 33, 33)
     private val boxBgHover = Color(67, 67, 67)
+    private val doorOpenerBg = Color(135, 135, 135)
+    private val doorOpenerBgHover = Color.WHITE
+    private val inCoreColor = Color(0, 120, 0)
+    private val inCoreBox = MathUtils.aabb(68, 106, 54, 42, 155, 119)
+
+    fun isPlayerInCore(player: DungeonPlayer): Boolean {
+        val entity = player.entity ?: return false
+        return ! player.isDead && inCoreBox.contains(entity.x, entity.y, entity.z)
+    }
+
+    private fun leapBoxColor(player: DungeonPlayer, isHovered: Boolean) = when {
+        LeapMenuFeatures.showLastDoorOpener && DungeonListener.lastDoorOpener == player -> if (isHovered) doorOpenerBgHover else doorOpenerBg
+        LeapMenuFeatures.tintDeadPlayers && player.isDead -> boxBg.lerp(Color.RED, 0.2f).let { if (isHovered) it.brighter() else it }
+        LeapMenuFeatures.highlightInCore && isPlayerInCore(player) -> inCoreColor
+        else -> if (isHovered) boxBgHover else boxBg
+    }
 
     fun render(
         event: ScreenEvent.PreRender,
@@ -82,17 +100,12 @@ object LeapMenuRenderer {
 
             val playerHighlightColor = if (useClassColor) entry.player.clazz.color else borderCol
 
-            // Determine card background: fill cell with highlight color if target
             val cardBg = if (isTarget && highlightCorrect) {
                 val alpha = if (playerHighlightColor.alpha in 1..254) playerHighlightColor.alpha else 180
                 val finalAlpha = if (isHovered) (alpha + 35).coerceAtMost(255) else alpha
                 playerHighlightColor.withAlpha(finalAlpha)
             } else {
-                val base = when {
-                    entry.player.isDead -> boxBg.withAlpha(210)
-                    isHovered -> boxBgHover
-                    else -> boxBg
-                }
+                val base = leapBoxColor(entry.player, isHovered)
                 if (hasTargets && darkenOthers && ! isTarget) {
                     base.lerp(Color.BLACK, darkenFactor.coerceIn(0f, 1f)).withAlpha(190)
                 } else {
@@ -100,22 +113,18 @@ object LeapMenuRenderer {
                 }
             }
 
-            // 1. Draw card background (filled)
             event.context.drawFloatingRect(x, y, boxWidth, boxHeight, cardBg)
 
-            // If target, draw a crisp highlight border around the filled card
             if (isTarget && highlightCorrect) {
                 event.context.drawBorder(x, y, boxWidth, boxHeight, playerHighlightColor, thickness = 2)
             }
 
-            // 2. Draw player head
             val headX = (x + (10f * scaleFactor)).toInt()
             val headY = (y + (boxHeight / 2f) - (headSize / 2f)).toInt()
 
             event.context.drawPlayerHead(headX, headY, headSize, entry.player.skin)
             event.context.drawBorder(headX, headY, headSize, headSize, entry.player.clazz.color)
 
-            // 3. Draw text info
             val textX = (x + (10f * scaleFactor) + headSize + (5f * scaleFactor)).toInt()
             val textY = (y + (boxHeight / 2f) - mc.font.lineHeight).toInt()
 
@@ -128,7 +137,6 @@ object LeapMenuRenderer {
             }
             event.context.drawString(statusText, textX, textY + 12, entry.player.clazz.color)
 
-            // 4. Darken non-target cell overlay
             if (hasTargets && darkenOthers && ! isTarget) {
                 val overlayAlpha = (darkenFactor.coerceIn(0f, 1f) * 255).toInt()
                 event.context.drawRect(x, y, boxWidth, boxHeight, Color.BLACK.withAlpha(overlayAlpha))
