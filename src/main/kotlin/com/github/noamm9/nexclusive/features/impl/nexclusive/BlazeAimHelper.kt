@@ -13,7 +13,6 @@ import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
-import com.github.noamm9.nexclusive.utils.ScreenUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.ChatUtils.unformattedText
@@ -327,14 +326,14 @@ object BlazeAimHelper : Feature(
 
         register<RenderOverlayEvent> {
             if (!drawCircle.value) return@register
-            if (ScreenUtils.isScreenOpen) return@register
+            if (mc.gui.screen() != null) return@register
             if (!inBlazeRoom || !isHoldingBow()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
-            if (ScreenUtils.isScreenOpen) return@register
+            if (mc.gui.screen() != null) return@register
             if (!inBlazeRoom || !isHoldingBow()) {
                 resetAimState()
                 return@register
