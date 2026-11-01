@@ -54,9 +54,10 @@ jobs:
         run: ./gradlew jar -Pminecraft_version="${{ matrix.minecraft_version }}" -Pfabric_version="${{ matrix.fabric_version }}" -Ploader_version="${{ matrix.loader_version }}" -Pnoammaddons_version="${{ matrix.noammaddons_version }}" --build-cache
 
       - name: Upload Nexclusive ${{ matrix.minecraft_version }} JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
-          name: Nexclusive-${{ matrix.minecraft_version }}
-          path: build/libs/Nexclusive-*-${{ matrix.minecraft_version }}.jar
+          path: |
+            build/libs/Nexclusive-*-${{ matrix.minecraft_version }}.jar
+            !build/libs/*-sources.jar
           if-no-files-found: error
-          compression-level: 0
+          archive: false
