@@ -16,7 +16,6 @@ import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
-import com.github.noamm9.ui.clickgui.ClickGuiScreen
 import com.mojang.blaze3d.platform.InputConstants
 import java.awt.Color
 
@@ -96,7 +95,7 @@ object SSAimHelper: Feature(
 
         register<RenderOverlayEvent> {
             if (! SimonSays.enabled || mode.value == 2 || ! drawCircle.value) return@register
-            if (! SimonSaysBridge.isAtSSDevice() && mc.gui.screen() !is ClickGuiScreen) return@register
+            if (mc.gui.screen() != null || ! SimonSaysBridge.isAtSSDevice()) return@register
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 

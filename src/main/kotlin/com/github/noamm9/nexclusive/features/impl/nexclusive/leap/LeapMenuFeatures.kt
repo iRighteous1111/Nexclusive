@@ -240,6 +240,7 @@ object LeapMenuFeatures: Feature(
     }
 
     private fun isApplicable(screen: Screen): Boolean {
+        if (screen !is net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<*>) return false
         if (! enabled || ! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return false
         if (! LeapMenuBridge.enabled) return false
         val title = screen.title.string.lowercase()

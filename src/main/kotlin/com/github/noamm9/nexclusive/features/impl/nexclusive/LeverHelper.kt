@@ -156,7 +156,7 @@ object LeverHelper: Feature(
 
     private fun scanNearbyLevers() {
         val p = mc.player ?: return cachedLevers.clear()
-        if (mc.level == null || (onlyInBoss.value && ! LocationUtils.inBoss)) {
+        if (mc.level == null || mc.gui.screen() != null || (onlyInBoss.value && ! LocationUtils.inBoss)) {
             cachedLevers.clear()
             return
         }
@@ -196,8 +196,9 @@ object LeverHelper: Feature(
 
         register<RenderOverlayEvent> {
             if (! drawCircle.value) return@register
+            if (mc.gui.screen() != null) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
-            if (mc.gui.screen() == null && cachedLevers.isEmpty()) return@register
+            if (cachedLevers.isEmpty()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
