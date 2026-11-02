@@ -73,6 +73,7 @@ object BlazeAimHelper : Feature(
     private var inBlazeRoom = false
     private var reversed = false
     private var targetBlaze: Blaze? = null
+    private var targetHasLineOfSight = false
 
     private val blazeAimedTimes = HashMap<Int, Long>()
     private var currentAimingBlazeId: Int? = null
@@ -108,19 +109,26 @@ object BlazeAimHelper : Feature(
     }
 
     private fun updateRoomState() {
-        if (!LocationUtils.inDungeon) {
+        if (!LocationUtils.inDungeon || LocationUtils.inBoss) {
             if (inBlazeRoom) resetAll()
             return
         }
 
-        val room = ScanUtils.currentRoom ?: runCatching { ScanUtils.getRoomFromPos(player.position()) }.getOrNull()
+        val room = ScanUtils.currentRoom
         val roomName = room?.name
 
-        if (roomName != null && roomName.contains("Blaze", ignoreCase = true)) {
-            inBlazeRoom = true
-            reversed = roomName.contains("Lower", ignoreCase = true)
+        if (roomName != null) {
+            if (roomName.contains("Blaze", ignoreCase = true)) {
+                inBlazeRoom = true
+                reversed = roomName.contains("Lower", ignoreCase = true)
+            } else if (inBlazeRoom) {
+                resetAll()
+            }
             return
         }
+
+        val hasBlazePuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE || it == Puzzle.HIGHER_BLAZE }
+        if (!hasBlazePuzzle && !inBlazeRoom) return
 
         val hasEntities = (blazes.isNotEmpty() && blazes.any { it.isAlive && !it.isRemoved }) || hasNearbyBlazeArmorStands()
         if (hasEntities) {
@@ -140,12 +148,7 @@ object BlazeAimHelper : Feature(
         }
 
         if (inBlazeRoom) {
-            inBlazeRoom = false
-            resetAimState()
-            blazes.clear()
-            hpMap.clear()
-            shotBlazes.clear()
-            targetBlaze = null
+            resetAll()
         }
     }
 
@@ -164,12 +167,33 @@ object BlazeAimHelper : Feature(
         return hpStr.toIntOrNull()
     }
 
+    private fun getBlazeTargetPos(target: Blaze): Vec3 {
+        val bb = target.boundingBox
+        val height = bb.maxY - bb.minY
+        val clampedOffset = hitboxOffset.value.coerceIn(-1.0, 1.0)
+        val factor = 0.5 + 0.5 * clampedOffset
+        val targetY = bb.minY + height * factor
+        return Vec3((bb.minX + bb.maxX) / 2.0, targetY, (bb.minZ + bb.maxZ) / 2.0)
+    }
+
     private fun updateTargetBlaze() {
         val now = System.currentTimeMillis()
         shotBlazes.entries.removeIf { (id, shotTime) ->
             now - shotTime > 3000L || blazes.none { it.id == id && it.isAlive && !it.isRemoved }
         }
-        targetBlaze = blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
+        val target = blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
+        targetBlaze = target
+        if (target == null) {
+            targetHasLineOfSight = false
+            return
+        }
+        val p = mc.player ?: run {
+            targetHasLineOfSight = false
+            return
+        }
+        val eyePos = p.eyePosition
+        val targetPos = getBlazeTargetPos(target)
+        targetHasLineOfSight = hasLineOfSight(eyePos, targetPos) && !isLineBlockedByOtherBlaze(eyePos, targetPos, target.id)
     }
 
     private fun isLookingAtBlaze(blaze: Blaze, eyePos: Vec3): Boolean {
@@ -264,6 +288,9 @@ object BlazeAimHelper : Feature(
         val currentLevel = mc.level ?: return
         val p = mc.player ?: return
 
+        val foundBlazes = ArrayList<Blaze>()
+        hpMap.clear()
+
         for (entity in currentLevel.entitiesForRendering()) {
             if (entity !is ArmorStand || entity.distanceToSqr(p) > 45.0 * 45.0) continue
             val name = entity.customName?.unformattedText ?: continue
@@ -274,15 +301,16 @@ object BlazeAimHelper : Feature(
                 entity.boundingBox.inflate(1.5, 3.0, 1.5)
             ).minByOrNull { it.distanceToSqr(entity) } ?: continue
 
+            if (!blaze.isAlive || blaze.isRemoved || hpMap.containsKey(blaze.id)) continue
             hpMap[blaze.id] = health
-            if (blaze !in blazes) {
-                blazes.add(blaze)
-            }
+            foundBlazes.add(blaze)
         }
 
-        blazes.removeIf { !it.isAlive || it.isRemoved }
-        blazes.sortBy { hpMap[it.id] ?: Int.MAX_VALUE }
-        if (reversed) blazes.reverse()
+        foundBlazes.sortBy { hpMap[it.id] ?: Int.MAX_VALUE }
+        if (reversed) foundBlazes.reverse()
+
+        blazes.clear()
+        blazes.addAll(foundBlazes)
         updateTargetBlaze()
     }
 
@@ -340,7 +368,7 @@ object BlazeAimHelper : Feature(
             }
 
             val target = targetBlaze
-            if (target == null) {
+            if (target == null || !target.isAlive || target.isRemoved || !targetHasLineOfSight) {
                 resetAimState()
                 return@register
             }
@@ -355,22 +383,7 @@ object BlazeAimHelper : Feature(
                 return@register
             }
 
-            val bb = target.boundingBox
-            val height = bb.maxY - bb.minY
-            val clampedOffset = hitboxOffset.value.coerceIn(-1.0, 1.0)
-            val factor = 0.5 + 0.5 * clampedOffset
-            val targetY = bb.minY + height * factor
-            val targetPos = Vec3((bb.minX + bb.maxX) / 2.0, targetY, (bb.minZ + bb.maxZ) / 2.0)
-
-            if (!hasLineOfSight(eyePos, targetPos)) {
-                resetAimState()
-                return@register
-            }
-
-            if (isLineBlockedByOtherBlaze(eyePos, targetPos, target.id)) {
-                resetAimState()
-                return@register
-            }
+            val targetPos = getBlazeTargetPos(target)
 
             val screenPos = ProjectionUtils.worldToScreen(targetPos)
             if (screenPos == null || CircleRenderer.distanceToCenter(screenPos) > helperRadius.value) {
@@ -465,6 +478,7 @@ object BlazeAimHelper : Feature(
         hpMap.clear()
         shotBlazes.clear()
         targetBlaze = null
+        targetHasLineOfSight = false
         inBlazeRoom = false
         reversed = false
     }

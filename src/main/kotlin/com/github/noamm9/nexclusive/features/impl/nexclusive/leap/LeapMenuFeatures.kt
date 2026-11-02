@@ -7,14 +7,18 @@ import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.MultiCheckboxSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
+import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.ContainerEvent
+import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
 import com.github.noamm9.event.impl.ScreenEvent
+import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
-import com.github.noamm9.features.impl.dungeon.LeapMenu
+import com.github.noamm9.nexclusive.utils.LeapMenuBridge
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
+import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.location.LocationUtils
@@ -146,16 +150,16 @@ object LeapMenuFeatures: Feature(
     private var consecutiveWrongClicks = 0
 
     val menuScale: Float
-        get() = (LeapMenu.configSettings.find { it.name == "Menu Scale" } as? SliderSetting)?.value?.toFloat() ?: 50f
+        get() = LeapMenuBridge.menuScale
 
     val showLastDoorOpener: Boolean
-        get() = (LeapMenu.configSettings.find { it.name == "Show Last Door Opener" } as? ToggleSetting)?.value == true
+        get() = LeapMenuBridge.showLastDoorOpener
 
     val tintDeadPlayers: Boolean
-        get() = (LeapMenu.configSettings.find { it.name == "Tint Dead Players" } as? ToggleSetting)?.value ?: true
+        get() = LeapMenuBridge.tintDeadPlayers
 
     val highlightInCore: Boolean
-        get() = (LeapMenu.configSettings.find { it.name == "Highlight Players in core" } as? ToggleSetting)?.value == true
+        get() = LeapMenuBridge.highlightInCore
 
     fun isCoreHighlightActive(): Boolean {
         if (! highlightInCore) return false
@@ -163,32 +167,37 @@ object LeapMenuFeatures: Feature(
     }
 
     override fun init() {
-        BossPhaseDetector.init()
-
         register<WorldChangeEvent> {
             consecutiveWrongClicks = 0
             BossPhaseDetector.reset()
         }
 
+        register<TickEvent.Start> { BossPhaseDetector.onTick() }
+        register<ChatMessageEvent> { BossPhaseDetector.onChat(event.unformattedText) }
+        register<MainThreadPacketReceivedEvent.Pre> { BossPhaseDetector.onPacketPre(event) }
+        register<MainThreadPacketReceivedEvent.Post> { BossPhaseDetector.onPacketPost(event) }
+
         register<ScreenEvent.PreRender>(EventPriority.HIGHEST) {
             if (! isApplicable(event.screen)) return@register
 
             BossPhaseDetector.recordLeapSection()
-            LeapMenu.updateLeapMenu()
+            LeapMenuBridge.updateLeapMenu()
+            val players = LeapMenuBridge.getPlayers()
 
             val coreActive = isCoreHighlightActive()
-            val targetIndices = if (coreActive) emptySet() else getTargetPlayerIndices().toSet()
+            val targetIndices = if (coreActive) emptySet() else getTargetPlayerIndices(players).toSet()
             if (targetIndices.isEmpty() && ! coreActive) return@register
 
             event.isCanceled = true
 
-            if (LeapMenu.players.filterNotNull().isEmpty()) {
+            if (players.all { it == null }) {
                 event.context.drawCenteredString("§4§lNo players found", Resolution.width / 2, Resolution.height / 2)
                 return@register
             }
 
             LeapMenuRenderer.render(
                 event = event,
+                players = players,
                 targetIndices = targetIndices,
                 useClassColor = useClassColor.value,
                 changeSize = changeSize.value,
@@ -205,7 +214,7 @@ object LeapMenuFeatures: Feature(
             if (! isApplicable(event.screen)) return@register
             if (! blockWrongClicks.value || event.button != 0) return@register
 
-            val targetIndices = getTargetPlayerIndices()
+            val targetIndices = getTargetPlayerIndices(LeapMenuBridge.getPlayers())
             if (targetIndices.isEmpty()) return@register
             val hoveredIndex = LeapMenuRenderer.getHoveredIndex() ?: return@register
 
@@ -224,9 +233,15 @@ object LeapMenuFeatures: Feature(
         }
     }
 
+    override fun onDisable() {
+        super.onDisable()
+        consecutiveWrongClicks = 0
+        BossPhaseDetector.reset()
+    }
+
     private fun isApplicable(screen: Screen): Boolean {
-        if (! enabled || ! LeapMenu.enabled) return false
-        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return false
+        if (! enabled || ! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return false
+        if (! LeapMenuBridge.enabled) return false
         val title = screen.title.string.lowercase()
         return title.contains("spirit leap") || title.contains("teleport to player")
     }
@@ -307,12 +322,12 @@ object LeapMenuFeatures: Feature(
         return activeSteps.getOrElse(index) { activeSteps.last() }
     }
 
-    fun getTargetPlayerIndices(): List<Int> {
+    fun getTargetPlayerIndices(players: Array<com.github.noamm9.utils.dungeons.DungeonPlayer?> = LeapMenuBridge.getPlayers()): List<Int> {
         if (isCoreHighlightActive()) return emptyList()
         val targetClasses = getTargetClasses()
         if (targetClasses.isEmpty()) return emptyList()
-        return LeapMenu.players.mapIndexedNotNull { i, entry ->
-            if (entry != null && ! entry.player.isDead && entry.player.clazz in targetClasses) i else null
+        return players.mapIndexedNotNull { i, player ->
+            if (player != null && ! player.isDead && player.clazz in targetClasses) i else null
         }
     }
 }

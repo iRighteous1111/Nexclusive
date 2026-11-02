@@ -2,7 +2,6 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
 import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.event.impl.ScreenEvent
-import com.github.noamm9.features.impl.dungeon.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ColorUtils.lerp
 import com.github.noamm9.utils.ColorUtils.withAlpha
@@ -38,6 +37,7 @@ object LeapMenuRenderer {
 
     fun render(
         event: ScreenEvent.PreRender,
+        players: Array<DungeonPlayer?>,
         targetIndices: Set<Int>,
         useClassColor: Boolean,
         changeSize: Boolean,
@@ -79,8 +79,8 @@ object LeapMenuRenderer {
         val hoveredIndex = getHoveredIndex()
         val hasTargets = targetIndices.isNotEmpty()
 
-        LeapMenu.players.forEachIndexed { i, entry ->
-            if (entry == null) return@forEachIndexed
+        players.forEachIndexed { i, player ->
+            if (player == null) return@forEachIndexed
 
             val isTarget = i in targetIndices
             val scaleFactor = if (changeSize) {
@@ -98,14 +98,14 @@ object LeapMenuRenderer {
             val y = cy - (boxHeight / 2f)
             val isHovered = i == hoveredIndex
 
-            val playerHighlightColor = if (useClassColor) entry.player.clazz.color else borderCol
+            val playerHighlightColor = if (useClassColor) player.clazz.color else borderCol
 
             val cardBg = if (isTarget && highlightCorrect) {
                 val alpha = if (playerHighlightColor.alpha in 1..254) playerHighlightColor.alpha else 180
                 val finalAlpha = if (isHovered) (alpha + 35).coerceAtMost(255) else alpha
                 playerHighlightColor.withAlpha(finalAlpha)
             } else {
-                val base = leapBoxColor(entry.player, isHovered)
+                val base = leapBoxColor(player, isHovered)
                 if (hasTargets && darkenOthers && ! isTarget) {
                     base.lerp(Color.BLACK, darkenFactor.coerceIn(0f, 1f)).withAlpha(190)
                 } else {
@@ -122,20 +122,20 @@ object LeapMenuRenderer {
             val headX = (x + (10f * scaleFactor)).toInt()
             val headY = (y + (boxHeight / 2f) - (headSize / 2f)).toInt()
 
-            event.context.drawPlayerHead(headX, headY, headSize, entry.player.skin)
-            event.context.drawBorder(headX, headY, headSize, headSize, entry.player.clazz.color)
+            event.context.drawPlayerHead(headX, headY, headSize, player.skin)
+            event.context.drawBorder(headX, headY, headSize, headSize, player.clazz.color)
 
             val textX = (x + (10f * scaleFactor) + headSize + (5f * scaleFactor)).toInt()
             val textY = (y + (boxHeight / 2f) - mc.font.lineHeight).toInt()
 
-            event.context.drawString(entry.player.name, textX, textY + 2, entry.player.clazz.color)
+            event.context.drawString(player.name, textX, textY + 2, player.clazz.color)
 
             val statusText = when {
-                entry.player.isDead -> "§cDEAD"
+                player.isDead -> "§cDEAD"
                 isTarget && highlightCorrect -> "§a★ TARGET"
-                else -> entry.player.clazz.name
+                else -> player.clazz.name
             }
-            event.context.drawString(statusText, textX, textY + 12, entry.player.clazz.color)
+            event.context.drawString(statusText, textX, textY + 12, player.clazz.color)
 
             if (hasTargets && darkenOthers && ! isTarget) {
                 val overlayAlpha = (darkenFactor.coerceIn(0f, 1f) * 255).toInt()

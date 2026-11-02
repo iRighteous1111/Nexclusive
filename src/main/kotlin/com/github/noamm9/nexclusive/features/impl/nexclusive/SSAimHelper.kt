@@ -53,6 +53,7 @@ object SSAimHelper: Feature(
     private val currentMode get() = modes.getOrNull(mode.value)
 
     private var hasAimed = false
+    private var isTurnStateDirty = false
     private var lastFrameTime = 0L
 
     val isThresholdLocking get() = ThresholdMode.isLocking
@@ -71,6 +72,7 @@ object SSAimHelper: Feature(
             return false
         }
 
+        isTurnStateDirty = true
         val inTarget = SimonSaysBridge.isInTargetArea(targetButton, aimingOffset.value)
         return currentMode?.shouldSuppressMouseInput(dx, dy, targetButton, inTarget, hasAimed) ?: false
     }
@@ -137,6 +139,7 @@ object SSAimHelper: Feature(
                 if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) return@register resetTurnState()
             }
 
+            isTurnStateDirty = true
             currentMode?.onRender(dt, targetButton, targetVec, inTarget, hasAimed) {
                 hasAimed = true
             }
@@ -155,12 +158,15 @@ object SSAimHelper: Feature(
     }
 
     private fun resetTurnState() {
-        modes.forEach { it.reset() }
+        if (! isTurnStateDirty) return
+        isTurnStateDirty = false
+        for (m in modes) m.reset()
     }
 
     private fun resetAimState() {
         hasAimed = false
         lastFrameTime = 0L
+        isTurnStateDirty = true
         resetTurnState()
         SimonSaysBridge.resetPhase()
     }

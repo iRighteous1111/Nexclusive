@@ -1,11 +1,11 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
 import com.github.noamm9.NoammAddons.mc
-import com.github.noamm9.event.EventBus
 import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
 import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
+import com.github.noamm9.features.Feature
 import com.github.noamm9.features.impl.floor7.devices.I4Helper
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils
@@ -86,41 +86,37 @@ object BossPhaseDetector {
         return player.y <= 155.0 && playerSection != null
     }
 
-    fun init() {
-        EventBus.register<WorldChangeEvent> { reset() }
-
-        EventBus.register<TickEvent.Start> {
-            if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) {
-                if (currentPhase != Phase.NONE) reset()
-                return@register
-            }
-            updateStage()
+    fun onTick() {
+        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) {
+            if (currentPhase != Phase.NONE) reset()
+            return
         }
+        updateStage()
+    }
 
-        EventBus.register<ChatMessageEvent> {
-            if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return@register
-            handleChat(event.unformattedText)
+    fun onChat(msg: String) {
+        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
+        handleChat(msg)
+    }
+
+    fun onPacketPre(event: MainThreadPacketReceivedEvent.Pre) {
+        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
+        val packet = event.packet as? ClientboundSetSubtitleTextPacket ?: return
+        val text = packet.text.unformattedText
+
+        if (text == "The gate has been destroyed!" || text == "The gate will open in 5 seconds!") {
+            onGateDestroyed()
         }
+    }
 
-        EventBus.register<MainThreadPacketReceivedEvent.Pre> {
-            if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return@register
-            val packet = event.packet as? ClientboundSetSubtitleTextPacket ?: return@register
-            val text = packet.text.unformattedText
-
-            if (text == "The gate has been destroyed!" || text == "The gate will open in 5 seconds!") {
-                onGateDestroyed()
-            }
-        }
-
-        EventBus.register<MainThreadPacketReceivedEvent.Post> {
-            if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return@register
-            if (currentPhase != Phase.GOLDOR || isI4Done) return@register
-            val packet = event.packet as? ClientboundSetEntityDataPacket ?: return@register
-            val level = mc.level ?: return@register
-            if (I4Helper.isOnDev() && level.getEntity(packet.id)?.name?.string == "Active") {
-                isI4Done = true
-                isPre4Done = true
-            }
+    fun onPacketPost(event: MainThreadPacketReceivedEvent.Post) {
+        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
+        if (currentPhase != Phase.GOLDOR || isI4Done) return
+        val packet = event.packet as? ClientboundSetEntityDataPacket ?: return
+        val level = mc.level ?: return
+        if (I4Helper.isOnDev() && level.getEntity(packet.id)?.name?.string == "Active") {
+            isI4Done = true
+            isPre4Done = true
         }
     }
 

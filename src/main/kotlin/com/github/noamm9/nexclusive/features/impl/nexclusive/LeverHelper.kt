@@ -5,6 +5,7 @@ import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
 import com.github.noamm9.event.impl.RenderOverlayEvent
 import com.github.noamm9.event.impl.RenderWorldEvent
+import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
@@ -22,6 +23,7 @@ import net.minecraft.world.level.block.Blocks
 import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import java.awt.Color
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.hypot
 
 object LeverHelper: Feature(
@@ -59,10 +61,16 @@ object LeverHelper: Feature(
     private val aimCooldown by SliderSetting("Aim Cooldown", 1.0, 0.0, 5.0, 0.1, "s")
         .withDescription("Time before re-aiming at the same lever. Set to 0 to continuously aim as long as it's in the circle.")
 
+    private val cachedLevers = CopyOnWriteArrayList<Pair<BlockPos, Vec3>>()
     private val leverAimedTimes = HashMap<BlockPos, Long>()
     private var currentAimingLever: BlockPos? = null
     private var aimLockStartTime = 0L
     private var lastFrameTime = 0L
+
+    private fun isClearRay(eyePos: Vec3, pt: Vec3, pos: BlockPos): Boolean {
+        val hit = level.clip(ClipContext(eyePos, pt, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
+        return hit.type == HitResult.Type.MISS || hit.blockPos == pos
+    }
 
     private fun getVisibleTargetPoint(pos: BlockPos, eyePos: Vec3): Vec3? {
         val state = level.getBlockState(pos)
@@ -80,6 +88,7 @@ object LeverHelper: Feature(
         val midY = (minY + maxY) / 2.0
         val midZ = (minZ + maxZ) / 2.0
         val center = Vec3(midX, midY, midZ)
+        if (isClearRay(eyePos, center, pos)) return center
 
         val inset = 0.05
         val x0 = minX + (maxX - minX) * inset
@@ -89,8 +98,7 @@ object LeverHelper: Feature(
         val z0 = minZ + (maxZ - minZ) * inset
         val z1 = maxZ - (maxZ - minZ) * inset
 
-        val points = listOf(
-            center,
+        val points = arrayOf(
             Vec3(x0, midY, midZ), Vec3(x1, midY, midZ),
             Vec3(midX, y0, midZ), Vec3(midX, y1, midZ),
             Vec3(midX, midY, z0), Vec3(midX, midY, z1),
@@ -100,19 +108,18 @@ object LeverHelper: Feature(
             Vec3(x1, y1, z0), Vec3(x1, y1, z1)
         )
 
-        val visible = points.filter { pt ->
-            val clip = ClipContext(eyePos, pt, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player)
-            val hit = level.clip(clip)
-            hit.type == HitResult.Type.MISS || hit.blockPos == pos
+        var bestPt: Vec3? = null
+        var bestDist = Double.MAX_VALUE
+        for (pt in points) {
+            if (! isClearRay(eyePos, pt, pos)) continue
+            val screenPos = ProjectionUtils.worldToScreen(pt) ?: continue
+            val dist = CircleRenderer.distanceToCenter(screenPos)
+            if (dist < bestDist) {
+                bestDist = dist
+                bestPt = pt
+            }
         }
-
-        if (visible.isEmpty()) return null
-        if (visible.contains(center)) return center
-
-        return visible.minByOrNull { pt ->
-            val screenPos = ProjectionUtils.worldToScreen(pt) ?: return@minByOrNull Double.MAX_VALUE
-            CircleRenderer.distanceToCenter(screenPos)
-        }
+        return bestPt
     }
 
     private val lightsDeviceLevers = hashSetOf(
@@ -134,50 +141,63 @@ object LeverHelper: Feature(
     }
 
     private fun hasAdjacentLever(pos: BlockPos): Boolean {
+        val mPos = BlockPos.MutableBlockPos()
         for (dx in - 1 .. 1) {
             for (dy in - 1 .. 1) {
                 for (dz in - 1 .. 1) {
                     if (dx == 0 && dy == 0 && dz == 0) continue
-                    if (level.getBlockState(pos.offset(dx, dy, dz)).block == Blocks.LEVER) return true
+                    mPos.set(pos.x + dx, pos.y + dy, pos.z + dz)
+                    if (level.getBlockState(mPos).block == Blocks.LEVER) return true
                 }
             }
         }
         return false
     }
 
-    private fun getNearbyLevers(eyePos: Vec3): List<Pair<BlockPos, Vec3>> {
-        val base = player.blockPosition()
-        val levers = mutableListOf<Pair<BlockPos, Vec3>>()
+    private fun scanNearbyLevers() {
+        val p = mc.player ?: return cachedLevers.clear()
+        if (mc.level == null || (onlyInBoss.value && ! LocationUtils.inBoss)) {
+            cachedLevers.clear()
+            return
+        }
+
+        val eyePos = p.eyePosition
+        val base = p.blockPosition()
+        val mPos = BlockPos.MutableBlockPos()
+        val found = ArrayList<Pair<BlockPos, Vec3>>(4)
 
         for (dx in - 5 .. 5) {
             for (dy in - 3 .. 3) {
                 for (dz in - 5 .. 5) {
-                    val pos = base.offset(dx, dy, dz)
-                    if (level.getBlockState(pos).block != Blocks.LEVER) continue
-                    if (ignoreLightsDevice.value && isLightsDevice(pos)) continue
-                    if (ignoreAdjacentLevers.value && hasAdjacentLever(pos)) continue
-                    if (eyePos.distanceToSqr(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5) > 25.0) continue
+                    mPos.set(base.x + dx, base.y + dy, base.z + dz)
+                    if (eyePos.distanceToSqr(mPos.x + 0.5, mPos.y + 0.5, mPos.z + 0.5) > 25.0) continue
+                    if (level.getBlockState(mPos).block != Blocks.LEVER) continue
 
-                    val visiblePt = getVisibleTargetPoint(pos, eyePos) ?: continue
-                    levers.add(pos to visiblePt)
+                    val immutablePos = mPos.immutable()
+                    if (ignoreLightsDevice.value && isLightsDevice(immutablePos)) continue
+                    if (ignoreAdjacentLevers.value && hasAdjacentLever(immutablePos)) continue
+
+                    val visiblePt = getVisibleTargetPoint(immutablePos, eyePos) ?: continue
+                    found.add(immutablePos to visiblePt)
                 }
             }
         }
-        return levers
+
+        cachedLevers.clear()
+        cachedLevers.addAll(found)
     }
 
     override fun init() {
         register<WorldChangeEvent> { resetAimState() }
 
+        register<TickEvent.Start> {
+            scanNearbyLevers()
+        }
+
         register<RenderOverlayEvent> {
             if (! drawCircle.value) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
-
-            val p = mc.player ?: return@register
-            if (mc.gui.screen() == null) {
-                val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
-                if (getNearbyLevers(eyePos).isEmpty()) return@register
-            }
+            if (mc.gui.screen() == null && cachedLevers.isEmpty()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
@@ -186,11 +206,7 @@ object LeverHelper: Feature(
             if (mc.gui.screen() != null) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
 
-            val p = mc.player ?: return@register
-            val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
-            val levers = getNearbyLevers(eyePos)
-
-            if (levers.isEmpty()) {
+            if (cachedLevers.isEmpty()) {
                 currentAimingLever = null
                 aimLockStartTime = 0L
                 lastFrameTime = 0L
@@ -202,36 +218,42 @@ object LeverHelper: Feature(
             val cooldownMs = (aimCooldown.value * 1000.0).toLong()
             val aimDurationMs = (aimDuration.value * 1000.0).toLong()
 
-            data class Candidate(val pos: BlockPos, val target: Vec3, val dist: Double)
+            var bestPos: BlockPos? = null
+            var bestTarget: Vec3? = null
+            var bestDist = Double.MAX_VALUE
 
-            val bestCandidate = levers.mapNotNull { (pos, target) ->
-                if (cooldownMs > 0L && now - (leverAimedTimes[pos] ?: 0L) < cooldownMs) return@mapNotNull null
-                val screenPos = ProjectionUtils.worldToScreen(target) ?: return@mapNotNull null
+            for ((pos, target) in cachedLevers) {
+                if (cooldownMs > 0L && now - (leverAimedTimes[pos] ?: 0L) < cooldownMs) continue
+                val screenPos = ProjectionUtils.worldToScreen(target) ?: continue
                 val dist = CircleRenderer.distanceToCenter(screenPos)
-                if (dist <= maxRadius) Candidate(pos, target, dist) else null
-            }.minByOrNull { it.dist }
+                if (dist <= maxRadius && dist < bestDist) {
+                    bestDist = dist
+                    bestPos = pos
+                    bestTarget = target
+                }
+            }
 
-            if (bestCandidate == null) {
+            if (bestPos == null || bestTarget == null) {
                 currentAimingLever = null
                 aimLockStartTime = 0L
                 lastFrameTime = 0L
                 return@register
             }
 
-            if (bestCandidate.pos != currentAimingLever) {
-                currentAimingLever = bestCandidate.pos
+            if (bestPos != currentAimingLever) {
+                currentAimingLever = bestPos
                 aimLockStartTime = 0L
                 lastFrameTime = 0L
             }
 
-            val targetRot = MathUtils.calcYawPitch(bestCandidate.target)
+            val targetRot = MathUtils.calcYawPitch(bestTarget)
 
             if (aimLockStartTime > 0L) {
                 if (now - aimLockStartTime < aimDurationMs) {
                     PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                     return@register
                 }
-                leverAimedTimes[bestCandidate.pos] = now
+                leverAimedTimes[bestPos] = now
                 currentAimingLever = null
                 aimLockStartTime = 0L
                 return@register
@@ -250,7 +272,7 @@ object LeverHelper: Feature(
                 PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                 aimLockStartTime = now
                 if (aimDurationMs <= 0L) {
-                    leverAimedTimes[bestCandidate.pos] = now
+                    leverAimedTimes[bestPos] = now
                     currentAimingLever = null
                     aimLockStartTime = 0L
                 }
@@ -272,7 +294,7 @@ object LeverHelper: Feature(
                 PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
                 aimLockStartTime = now
                 if (aimDurationMs <= 0L) {
-                    leverAimedTimes[bestCandidate.pos] = now
+                    leverAimedTimes[bestPos] = now
                     currentAimingLever = null
                     aimLockStartTime = 0L
                 }
@@ -286,6 +308,7 @@ object LeverHelper: Feature(
     }
 
     private fun resetAimState() {
+        cachedLevers.clear()
         leverAimedTimes.clear()
         currentAimingLever = null
         aimLockStartTime = 0L
