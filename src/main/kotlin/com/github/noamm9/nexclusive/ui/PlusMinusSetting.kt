@@ -22,8 +22,9 @@ class PlusMinusSetting(
 ) : ConfigHolder<Unit>(name, Unit)
 
 class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
-    override val height: Int get() = 18
+    override val height: Int get() = 45
 
+    private val headerHeight = 22
     private val btnSize = 16
     private val spacing = 4
 
@@ -31,12 +32,15 @@ class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
     private val minusAnim = Animation(150L)
 
     override fun draw(ctx: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
+        ctx.drawRect(x, y, width, headerHeight, Color(255, 255, 255, 10))
+        ctx.drawCenteredString("§l${setting.name}", x + width / 2, y + 7, Style.accentColor)
+
         val count = setting.countSupplier()
         val canAdd = count < setting.maxCount
         val canRemove = count > setting.minCount
 
         val plusX = x + 2
-        val plusY = y + 1
+        val plusY = y + headerHeight + 5
 
         val isPlusHovered = canAdd && mouseX >= plusX && mouseX <= plusX + btnSize && mouseY >= plusY && mouseY <= plusY + btnSize
         plusAnim.update(if (isPlusHovered) 1f else 0f)
@@ -96,7 +100,7 @@ class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
         val canRemove = count > setting.minCount
 
         val plusX = x + 2
-        val plusY = y + 1
+        val plusY = y + headerHeight + 5
 
         if (canAdd && mouseX >= plusX && mouseX <= plusX + btnSize && mouseY >= plusY && mouseY <= plusY + btnSize) {
             Style.playClickSound(1f)

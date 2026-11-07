@@ -1,7 +1,5 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
-import com.github.noamm9.config.types.ButtonSetting
-import com.github.noamm9.nexclusive.ui.PlusMinusSetting
 import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.MultiCheckboxSetting
@@ -15,15 +13,19 @@ import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
+import com.github.noamm9.nexclusive.ui.PlusMinusSetting
 import com.github.noamm9.nexclusive.utils.LeapMenuBridge
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.MathUtils.aabb
 import com.github.noamm9.utils.dungeons.DungeonListener
+import com.github.noamm9.utils.dungeons.DungeonPlayer
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.Render2D.drawCenteredString
 import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
 import net.minecraft.sounds.SoundEvents
 import java.awt.Color
@@ -32,7 +34,7 @@ object LeapMenuFeatures: Feature(
     name = "Leap Menu Features",
     description = "Enhances Noamm's Leap Menu with boss mode selections, targets, scaling, highlights, and protection."
 ) {
-    // 1. Visuals & Click Protection
+    // 1. Visuals
     private val highlightCorrect by ToggleSetting("Highlight Correct Player", true).section("Visuals")
     private val useClassColor by ToggleSetting("Use Class Color for Highlight", true).showIf { highlightCorrect.value }
     private val customHighlightColor by ColorSetting("Custom Highlight Color", Color(0, 255, 120, 220), true).showIf { highlightCorrect.value && ! useClassColor.value }
@@ -47,10 +49,10 @@ object LeapMenuFeatures: Feature(
     private val blockWrongClicks by ToggleSetting("Block Wrong Clicks", false)
     private val overrideClicks by SliderSetting("Override Clicks", 3, 1, 10, 1).showIf { blockWrongClicks.value }
 
-    // 2. Boss Selection Mode Menu
+    // 2. Player Selection
     private val selectedBoss by DropdownSetting(
         "Boss Section", 0, listOf("P1", "P2", "P3", "P5", "Misc Leap")
-    ).section("Boss Targets")
+    ).section("Player Selection")
     private val classOptions = listOf("None", "Archer", "Mage", "Berserk", "Healer", "Tank")
 
     private fun defaultClasses() = mutableMapOf(
@@ -63,9 +65,27 @@ object LeapMenuFeatures: Feature(
 
     // --- P2 (Boss 1) ---
     private val p2Enabled by ToggleSetting("Enable P2", true).showIf { selectedBoss.value == 1 }
-    private val checkpointLeap by DropdownSetting("Checkpoint Leap (Purple)", 0, classOptions).showIf { selectedBoss.value == 1 && p2Enabled.value }
-    private val yellowCrusherLeap by DropdownSetting("Yellow Crusher Leap", 0, classOptions).showIf { selectedBoss.value == 1 && p2Enabled.value }
-    private val sscLeap by DropdownSetting("SSC Leap", 0, classOptions).showIf { selectedBoss.value == 1 && p2Enabled.value }
+    private val purplePillarLeap by DropdownSetting("Purple Pillar Leap", 0, classOptions)
+        .withDescription("When near purple pillar targets selected class.")
+        .showIf { selectedBoss.value == 1 && p2Enabled.value }
+    private val purplePadLeap by DropdownSetting("Purple Pad Leap", 0, classOptions)
+        .withDescription("For going down after padding purple.")
+        .showIf { selectedBoss.value == 1 && p2Enabled.value }
+    private val acaciaSpotLeap by DropdownSetting("Acacia Spot Leap", 0, classOptions)
+        .withDescription("Targets selected class when near purple pillar.")
+        .showIf { selectedBoss.value == 1 && p2Enabled.value }
+    private val yellowPadLeap by DropdownSetting("Yellow Pad Leap", 0, classOptions)
+        .withDescription("Its gonna target this person while near yellow pad.")
+        .showIf { selectedBoss.value == 1 && p2Enabled.value }
+    private val yellowPillarLeap by DropdownSetting("Yellow Pillar Leap", 0, classOptions)
+        .withDescription("Targets selected class when near yellow pillar.")
+        .showIf { selectedBoss.value == 1 && p2Enabled.value }
+
+    private val purplePillarBox = aabb(94, 169, 60, 106, 175, 70)
+    private val purplePadBox = aabb(106, 170, 86, 122, 175, 102)
+    private val acaciaSpotBox = aabb(78, 163, 92, 91, 168, 82)
+    private val yellowPadBox = aabb(58, 160, 85, 24, 177, 102)
+    private val yellowPillarBox = aabb(59, 169, 75, 32, 173, 56)
 
     // --- P3 (Goldor) (Boss 2) ---
     private val p3Enabled by ToggleSetting("Enable P3", true).showIf { selectedBoss.value == 2 }
@@ -74,68 +94,68 @@ object LeapMenuFeatures: Feature(
     private val s1Count = SliderSetting("s1_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
     private val s1Controls = PlusMinusSetting(
-        name = "s1_controls",
+        name = "§aSection 1 (S1)",
         countSupplier = { s1Count.value },
         minCount = 1,
         maxCount = 4,
         onAdd = { if (s1Count.value < 4) s1Count.value = s1Count.value + 1 },
         onRemove = { if (s1Count.value > 1) s1Count.value = s1Count.value - 1 }
-    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§aSection 1 (S1)").apply(configSettings::add)
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.apply(configSettings::add)
 
-    private val s1Leap1 by MultiCheckboxSetting("S1 Leap 1", defaultClasses()).jsonName("s1_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§aSection 1 (S1)")
-    private val s1Leap2 by MultiCheckboxSetting("S1 Leap 2", defaultClasses()).jsonName("s1_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 2 }.section("§aSection 1 (S1)")
-    private val s1Leap3 by MultiCheckboxSetting("S1 Leap 3", defaultClasses()).jsonName("s1_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 3 }.section("§aSection 1 (S1)")
-    private val s1Leap4 by MultiCheckboxSetting("S1 Leap 4", defaultClasses()).jsonName("s1_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 4 }.section("§aSection 1 (S1)")
+    private val s1Leap1 by MultiCheckboxSetting("S1 Leap 1", defaultClasses()).jsonName("s1_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
+    private val s1Leap2 by MultiCheckboxSetting("S1 Leap 2", defaultClasses()).jsonName("s1_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 2 }
+    private val s1Leap3 by MultiCheckboxSetting("S1 Leap 3", defaultClasses()).jsonName("s1_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 3 }
+    private val s1Leap4 by MultiCheckboxSetting("S1 Leap 4", defaultClasses()).jsonName("s1_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 4 }
 
     // Section 2
     private val s2Count = SliderSetting("s2_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
     private val s2Controls = PlusMinusSetting(
-        name = "s2_controls",
+        name = "§eSection 2 (S2)",
         countSupplier = { s2Count.value },
         minCount = 1,
         maxCount = 4,
         onAdd = { if (s2Count.value < 4) s2Count.value = s2Count.value + 1 },
         onRemove = { if (s2Count.value > 1) s2Count.value = s2Count.value - 1 }
-    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§eSection 2 (S2)").apply(configSettings::add)
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.apply(configSettings::add)
 
-    private val s2Leap1 by MultiCheckboxSetting("S2 Leap 1", defaultClasses()).jsonName("s2_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§eSection 2 (S2)")
-    private val s2Leap2 by MultiCheckboxSetting("S2 Leap 2", defaultClasses()).jsonName("s2_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 2 }.section("§eSection 2 (S2)")
-    private val s2Leap3 by MultiCheckboxSetting("S2 Leap 3", defaultClasses()).jsonName("s2_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 3 }.section("§eSection 2 (S2)")
-    private val s2Leap4 by MultiCheckboxSetting("S2 Leap 4", defaultClasses()).jsonName("s2_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 4 }.section("§eSection 2 (S2)")
+    private val s2Leap1 by MultiCheckboxSetting("S2 Leap 1", defaultClasses()).jsonName("s2_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
+    private val s2Leap2 by MultiCheckboxSetting("S2 Leap 2", defaultClasses()).jsonName("s2_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 2 }
+    private val s2Leap3 by MultiCheckboxSetting("S2 Leap 3", defaultClasses()).jsonName("s2_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 3 }
+    private val s2Leap4 by MultiCheckboxSetting("S2 Leap 4", defaultClasses()).jsonName("s2_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 4 }
 
     // Section 3
     private val s3Count = SliderSetting("s3_count", 1, 1, 4, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
     private val s3Controls = PlusMinusSetting(
-        name = "s3_controls",
+        name = "§cSection 3 (S3)",
         countSupplier = { s3Count.value },
         minCount = 1,
         maxCount = 4,
         onAdd = { if (s3Count.value < 4) s3Count.value = s3Count.value + 1 },
         onRemove = { if (s3Count.value > 1) s3Count.value = s3Count.value - 1 }
-    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§cSection 3 (S3)").apply(configSettings::add)
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.apply(configSettings::add)
 
-    private val s3Leap1 by MultiCheckboxSetting("S3 Leap 1", defaultClasses()).jsonName("s3_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§cSection 3 (S3)")
-    private val s3Leap2 by MultiCheckboxSetting("S3 Leap 2", defaultClasses()).jsonName("s3_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 2 }.section("§cSection 3 (S3)")
-    private val s3Leap3 by MultiCheckboxSetting("S3 Leap 3", defaultClasses()).jsonName("s3_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 3 }.section("§cSection 3 (S3)")
-    private val s3Leap4 by MultiCheckboxSetting("S3 Leap 4", defaultClasses()).jsonName("s3_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 4 }.section("§cSection 3 (S3)")
+    private val s3Leap1 by MultiCheckboxSetting("S3 Leap 1", defaultClasses()).jsonName("s3_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
+    private val s3Leap2 by MultiCheckboxSetting("S3 Leap 2", defaultClasses()).jsonName("s3_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 2 }
+    private val s3Leap3 by MultiCheckboxSetting("S3 Leap 3", defaultClasses()).jsonName("s3_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 3 }
+    private val s3Leap4 by MultiCheckboxSetting("S3 Leap 4", defaultClasses()).jsonName("s3_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 4 }
 
     // Section 4
     private val s4Count = SliderSetting("s4_count", 1, 1, 3, 1).hideIf { true }.apply(configSettings::add)
     @Suppress("unused")
     private val s4Controls = PlusMinusSetting(
-        name = "s4_controls",
+        name = "§bSection 4 (S4)",
         countSupplier = { s4Count.value },
         minCount = 1,
         maxCount = 3,
         onAdd = { if (s4Count.value < 3) s4Count.value = s4Count.value + 1 },
         onRemove = { if (s4Count.value > 1) s4Count.value = s4Count.value - 1 }
-    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§bSection 4 (S4)").apply(configSettings::add)
+    ).showIf { selectedBoss.value == 2 && p3Enabled.value }.apply(configSettings::add)
 
-    private val s4Leap1 by MultiCheckboxSetting("S4 Leap 1", defaultClasses()).jsonName("s4_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }.section("§bSection 4 (S4)")
-    private val s4Leap2 by MultiCheckboxSetting("S4 Leap 2", defaultClasses()).jsonName("s4_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 2 }.section("§bSection 4 (S4)")
-    private val s4Leap3 by MultiCheckboxSetting("S4 Leap 3", defaultClasses()).jsonName("s4_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 3 }.section("§bSection 4 (S4)")
+    private val s4Leap1 by MultiCheckboxSetting("S4 Leap 1", defaultClasses()).jsonName("s4_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
+    private val s4Leap2 by MultiCheckboxSetting("S4 Leap 2", defaultClasses()).jsonName("s4_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 2 }
+    private val s4Leap3 by MultiCheckboxSetting("S4 Leap 3", defaultClasses()).jsonName("s4_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 3 }
 
     // --- P5 (Boss 3) ---
     private val p5Enabled by ToggleSetting("Enable P5", true).showIf { selectedBoss.value == 3 }
@@ -240,7 +260,7 @@ object LeapMenuFeatures: Feature(
     }
 
     private fun isApplicable(screen: Screen): Boolean {
-        if (screen !is net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<*>) return false
+        if (screen !is AbstractContainerScreen<*>) return false
         if (! enabled || ! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return false
         if (! LeapMenuBridge.enabled) return false
         val title = screen.title.string.lowercase()
@@ -252,18 +272,14 @@ object LeapMenuFeatures: Feature(
 
         // 1. Check Misc Leaps (I4 / PD) if enabled
         if (miscEnabled.value) {
-            // I4 Leap: Goldor active, player is at I4/Pre4, and device 4 is completed
             if (i4Leap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.GOLDOR && BossPhaseDetector.isI4Done) {
                 val c = DungeonClass.fromName(classOptions[i4Leap.value])
                 return if (c != DungeonClass.Empty) setOf(c) else emptySet()
             }
 
-            // PD Leap: Storm active and player is in P3 sections (S1-S4)
-            if (pdLeap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.STORM) {
-                if (BossPhaseDetector.isInP3Section()) {
-                    val c = DungeonClass.fromName(classOptions[pdLeap.value])
-                    return if (c != DungeonClass.Empty) setOf(c) else emptySet()
-                }
+            if (pdLeap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.STORM && BossPhaseDetector.isInP3Section()) {
+                val c = DungeonClass.fromName(classOptions[pdLeap.value])
+                return if (c != DungeonClass.Empty) setOf(c) else emptySet()
             }
         }
 
@@ -276,16 +292,19 @@ object LeapMenuFeatures: Feature(
                 } else emptySet()
             }
             BossPhaseDetector.Phase.STORM -> {
-                if (p2Enabled.value) {
-                    val choice = when (BossPhaseDetector.stormStep) {
-                        0 -> checkpointLeap.value
-                        1 -> yellowCrusherLeap.value
-                        else -> sscLeap.value
-                    }
-                    if (choice > 0) {
-                        val c = DungeonClass.fromName(classOptions[choice])
-                        if (c != DungeonClass.Empty) setOf(c) else emptySet()
-                    } else emptySet()
+                if (! p2Enabled.value) return emptySet()
+                val pos = mc.player?.position() ?: return emptySet()
+                val choice = when {
+                    purplePillarBox.contains(pos) -> purplePillarLeap.value
+                    purplePadBox.contains(pos) -> purplePadLeap.value
+                    acaciaSpotBox.contains(pos) -> acaciaSpotLeap.value
+                    yellowPadBox.contains(pos) -> yellowPadLeap.value
+                    yellowPillarBox.contains(pos) -> yellowPillarLeap.value
+                    else -> 0
+                }
+                if (choice > 0) {
+                    val c = DungeonClass.fromName(classOptions[choice])
+                    if (c != DungeonClass.Empty) setOf(c) else emptySet()
                 } else emptySet()
             }
             BossPhaseDetector.Phase.GOLDOR -> {
@@ -323,7 +342,7 @@ object LeapMenuFeatures: Feature(
         return activeSteps.getOrElse(index) { activeSteps.last() }
     }
 
-    fun getTargetPlayerIndices(players: Array<com.github.noamm9.utils.dungeons.DungeonPlayer?> = LeapMenuBridge.getPlayers()): List<Int> {
+    fun getTargetPlayerIndices(players: Array<DungeonPlayer?> = LeapMenuBridge.getPlayers()): List<Int> {
         if (isCoreHighlightActive()) return emptyList()
         val targetClasses = getTargetClasses()
         if (targetClasses.isEmpty()) return emptyList()

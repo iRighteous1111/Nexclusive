@@ -1,14 +1,10 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
 import com.github.noamm9.NoammAddons.mc
-import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
-import com.github.noamm9.event.impl.TickEvent
-import com.github.noamm9.event.impl.WorldChangeEvent
-import com.github.noamm9.features.Feature
 import com.github.noamm9.features.impl.floor7.devices.I4Helper
 import com.github.noamm9.utils.ChatUtils.unformattedText
-import com.github.noamm9.utils.MathUtils
+import com.github.noamm9.utils.MathUtils.aabb
 import com.github.noamm9.utils.location.LocationUtils
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
 import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket
@@ -20,11 +16,6 @@ object BossPhaseDetector {
         private set
     var isMaxorDead = false
         private set
-
-    // Storm sequence: 0 = Checkpoint (Purple), 1 = Yellow Crusher, 2 = SSC
-    var stormStep = 0
-        private set
-    private var oofCount = 0
 
     // Goldor section tracking (1..4)
     var goldorSection = 1
@@ -55,7 +46,7 @@ object BossPhaseDetector {
     private var p5StartTime = 0L
     private var relicPickupTime = 0L
     private var gateDestroyedThisSection = false
-    private val pre4Box = MathUtils.aabb(62, 127, 34, 65, 130, 37)
+    private val pre4Box = aabb(62, 127, 34, 65, 130, 37)
     private val termRegex = Regex("^(.{1,16}) (activated|completed) a (terminal|lever|device)! \\((\\d)/(\\d)\\)$")
 
     val playerSection: Int?
@@ -123,28 +114,20 @@ object BossPhaseDetector {
     private fun handleChat(msg: String) {
         if (msg.startsWith("You have teleported to ") && msg.endsWith("!")) {
             isI4Done = false
-            when (currentPhase) {
-                Phase.STORM -> if (stormStep < 2) stormStep++
-                Phase.GOLDOR -> when (lastLeapSection) {
+            if (currentPhase == Phase.GOLDOR) {
+                when (lastLeapSection) {
                     1 -> s1LeapIndex++
                     2 -> s2LeapIndex++
                     3 -> s3LeapIndex++
                     4 -> s4LeapIndex++
                 }
-                else -> {}
             }
         }
 
         when (msg) {
             "[BOSS] Maxor: WELL! WELL! WELL! LOOK WHO'S HERE!" -> { currentPhase = Phase.MAXOR; isMaxorDead = false }
             "[BOSS] Maxor: I'M TOO YOUNG TO DIE AGAIN!" -> isMaxorDead = true
-            "[BOSS] Storm: Pathetic Maxor, just like expected." -> { currentPhase = Phase.STORM; isMaxorDead = true; stormStep = 0; oofCount = 0 }
-            "[BOSS] Storm: Oof", "[BOSS] Storm: Ouch, that hurt!" -> {
-                oofCount++
-                if (oofCount == 1 && stormStep == 0) stormStep = 1
-                else if (oofCount >= 2) stormStep = 2
-            }
-            "[BOSS] Storm: I should have known that I stood no chance." -> stormStep = 2
+            "[BOSS] Storm: Pathetic Maxor, just like expected." -> { currentPhase = Phase.STORM; isMaxorDead = true }
             "[BOSS] Goldor: Who dares trespass into my domain?" -> { currentPhase = Phase.GOLDOR; goldorSection = 1; gateDestroyedThisSection = false; resetGoldorIndices() }
             "The gate has been destroyed!" -> onGateDestroyed()
             "The Core entrance is opening!" -> goldorSection = 4
@@ -206,8 +189,6 @@ object BossPhaseDetector {
     fun reset() {
         currentPhase = Phase.NONE
         isMaxorDead = false
-        stormStep = 0
-        oofCount = 0
         goldorSection = 1
         lastLeapSection = 1
         gateDestroyedThisSection = false
