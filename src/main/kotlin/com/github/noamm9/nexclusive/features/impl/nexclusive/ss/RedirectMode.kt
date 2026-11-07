@@ -7,6 +7,7 @@ import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.holdDel
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.maxSpeed
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.minimumSpeed
 import com.github.noamm9.nexclusive.features.impl.nexclusive.SSAimHelper.speedMultiplier
+import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
@@ -46,8 +47,7 @@ object RedirectMode: SSMode {
             if (detailedSettings.value && holdDelay.value > 0) {
                 if (holdStartTime == 0L) holdStartTime = now
                 if (now - holdStartTime < holdDelay.value.toLong()) {
-                    val targetRot = MathUtils.calcYawPitch(targetVec)
-                    PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
+                    AimUtils.rotateTo(targetVec)
                     return
                 }
             }

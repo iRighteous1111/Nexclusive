@@ -23,8 +23,6 @@ object SSAimHelper: Feature(
     name = "SS Aim Helper",
     description = "Assists with Simon Says device solving using customizable aim modes."
 ) {
-    val INSTANCE = this
-
     private val mode by DropdownSetting("Mode", 0, listOf("Classic Helper", "Threshold Lock", "Stop Movement", "Redirect Mode"))
 
     val classicRotationSpeed by SliderSetting("Rotation Speed", 12.0, 1.0, 50.0, 0.5).section("Classic Helper").showIf { mode.value == 0 }

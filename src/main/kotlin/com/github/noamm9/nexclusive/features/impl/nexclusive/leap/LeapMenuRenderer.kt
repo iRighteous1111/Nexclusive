@@ -5,7 +5,7 @@ import com.github.noamm9.event.impl.ScreenEvent
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ColorUtils.lerp
 import com.github.noamm9.utils.ColorUtils.withAlpha
-import com.github.noamm9.utils.MathUtils
+import com.github.noamm9.utils.MathUtils.aabb
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.DungeonPlayer
 import com.github.noamm9.utils.render.Render2D.drawBorder
@@ -21,9 +21,10 @@ object LeapMenuRenderer {
     private val doorOpenerBg = Color(135, 135, 135)
     private val doorOpenerBgHover = Color.WHITE
     private val inCoreColor = Color(0, 120, 0)
-    private val inCoreBox = MathUtils.aabb(68, 106, 54, 42, 155, 119)
+    private val inCoreBox = aabb(68, 106, 54, 42, 155, 119)
 
     fun isPlayerInCore(player: DungeonPlayer): Boolean {
+        if (! BossPhaseDetector.inCorePhase) return false
         val entity = player.entity ?: return false
         return ! player.isDead && inCoreBox.contains(entity.x, entity.y, entity.z)
     }
@@ -50,8 +51,7 @@ object LeapMenuRenderer {
     ) {
         Resolution.push(event.context)
 
-        val rawScale = LeapMenuFeatures.menuScale
-        val userScale = (rawScale / 100f) * 2.0f
+        val userScale = (LeapMenuFeatures.menuScale / 100f) * 2.0f
         val screenWidth = Resolution.width / userScale
         val screenHeight = Resolution.height / userScale
 
@@ -69,13 +69,6 @@ object LeapMenuRenderer {
         val startX = (screenWidth - gridW) / 2f
         val startY = (screenHeight - gridH) / 2f
 
-        val slotCenters = listOf(
-            (startX + baseBoxW / 2f) to (startY + baseBoxH / 2f),
-            (startX + baseBoxW + padding + baseBoxW / 2f) to (startY + baseBoxH / 2f),
-            (startX + baseBoxW / 2f) to (startY + baseBoxH + padding + baseBoxH / 2f),
-            (startX + baseBoxW + padding + baseBoxW / 2f) to (startY + baseBoxH + padding + baseBoxH / 2f)
-        )
-
         val hoveredIndex = getHoveredIndex()
         val hasTargets = targetIndices.isNotEmpty()
 
@@ -84,16 +77,19 @@ object LeapMenuRenderer {
 
             val isTarget = i in targetIndices
             val scaleFactor = if (changeSize) {
-                if (isTarget) targetScale
-                else if (hasTargets) otherScale
-                else 1.0f
+                when {
+                    isTarget -> targetScale
+                    hasTargets -> otherScale
+                    else -> 1.0f
+                }
             } else 1.0f
 
             val boxWidth = baseBoxW * scaleFactor
             val boxHeight = baseBoxH * scaleFactor
             val headSize = (baseHeadSize * scaleFactor).toInt()
 
-            val (cx, cy) = slotCenters[i]
+            val cx = startX + (i % 2) * (baseBoxW + padding) + baseBoxW / 2f
+            val cy = startY + (i / 2) * (baseBoxH + padding) + baseBoxH / 2f
             val x = cx - (boxWidth / 2f)
             val y = cy - (boxHeight / 2f)
             val isHovered = i == hoveredIndex
@@ -105,12 +101,7 @@ object LeapMenuRenderer {
                 val finalAlpha = if (isHovered) (alpha + 35).coerceAtMost(255) else alpha
                 playerHighlightColor.withAlpha(finalAlpha)
             } else {
-                val base = leapBoxColor(player, isHovered)
-                if (hasTargets && darkenOthers && ! isTarget) {
-                    base.lerp(Color.BLACK, darkenFactor.coerceIn(0f, 1f)).withAlpha(190)
-                } else {
-                    base.withAlpha(190)
-                }
+                leapBoxColor(player, isHovered).withAlpha(190)
             }
 
             event.context.drawFloatingRect(x, y, boxWidth, boxHeight, cardBg)

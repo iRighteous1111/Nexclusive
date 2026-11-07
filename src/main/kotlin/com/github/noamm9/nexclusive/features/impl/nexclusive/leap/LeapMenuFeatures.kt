@@ -9,7 +9,6 @@ import com.github.noamm9.event.impl.ChatMessageEvent
 import com.github.noamm9.event.impl.ContainerEvent
 import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
 import com.github.noamm9.event.impl.ScreenEvent
-import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
@@ -166,20 +165,12 @@ object LeapMenuFeatures: Feature(
     private val i4Leap by DropdownSetting("I4 Leap", 0, classOptions).showIf { selectedBoss.value == 4 && miscEnabled.value }
     private val pdLeap by DropdownSetting("PD Leap", 0, classOptions).showIf { selectedBoss.value == 4 && miscEnabled.value }
 
-    // Runtime state
     private var consecutiveWrongClicks = 0
 
-    val menuScale: Float
-        get() = LeapMenuBridge.menuScale
-
-    val showLastDoorOpener: Boolean
-        get() = LeapMenuBridge.showLastDoorOpener
-
-    val tintDeadPlayers: Boolean
-        get() = LeapMenuBridge.tintDeadPlayers
-
-    val highlightInCore: Boolean
-        get() = LeapMenuBridge.highlightInCore
+    val menuScale: Float get() = LeapMenuBridge.menuScale
+    val showLastDoorOpener: Boolean get() = LeapMenuBridge.showLastDoorOpener
+    val tintDeadPlayers: Boolean get() = LeapMenuBridge.tintDeadPlayers
+    val highlightInCore: Boolean get() = LeapMenuBridge.highlightInCore
 
     fun isCoreHighlightActive(): Boolean {
         if (! highlightInCore) return false
@@ -192,9 +183,7 @@ object LeapMenuFeatures: Feature(
             BossPhaseDetector.reset()
         }
 
-        register<TickEvent.Start> { BossPhaseDetector.onTick() }
         register<ChatMessageEvent> { BossPhaseDetector.onChat(event.unformattedText) }
-        register<MainThreadPacketReceivedEvent.Pre> { BossPhaseDetector.onPacketPre(event) }
         register<MainThreadPacketReceivedEvent.Post> { BossPhaseDetector.onPacketPost(event) }
 
         register<ScreenEvent.PreRender>(EventPriority.HIGHEST) {
@@ -267,31 +256,31 @@ object LeapMenuFeatures: Feature(
         return title.contains("spirit leap") || title.contains("teleport to player")
     }
 
+    private fun classFromChoice(choice: Int): Set<DungeonClass> {
+        if (choice <= 0) return emptySet()
+        val c = DungeonClass.fromName(classOptions[choice])
+        return if (c != DungeonClass.Empty) setOf(c) else emptySet()
+    }
+
     fun getTargetClasses(): Set<DungeonClass> {
         if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return emptySet()
 
-        // 1. Check Misc Leaps (I4 / PD) if enabled
+        // 1. Misc Leaps (I4 / PD)
         if (miscEnabled.value) {
-            if (i4Leap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.GOLDOR && BossPhaseDetector.isI4Done) {
-                val c = DungeonClass.fromName(classOptions[i4Leap.value])
-                return if (c != DungeonClass.Empty) setOf(c) else emptySet()
+            if (i4Leap.value > 0 && BossPhaseDetector.isGoldorPhase && BossPhaseDetector.isI4Done) {
+                return classFromChoice(i4Leap.value)
             }
-
-            if (pdLeap.value > 0 && BossPhaseDetector.currentPhase == BossPhaseDetector.Phase.STORM && BossPhaseDetector.isInP3Section()) {
-                val c = DungeonClass.fromName(classOptions[pdLeap.value])
-                return if (c != DungeonClass.Empty) setOf(c) else emptySet()
+            if (pdLeap.value > 0 && BossPhaseDetector.isStormPhase && BossPhaseDetector.isInP3Section()) {
+                return classFromChoice(pdLeap.value)
             }
         }
 
         // 2. Boss-specific progression leaps
-        return when (BossPhaseDetector.currentPhase) {
-            BossPhaseDetector.Phase.MAXOR -> {
-                if (p1Enabled.value && ! BossPhaseDetector.isMaxorDead && p1Leap.value > 0) {
-                    val c = DungeonClass.fromName(classOptions[p1Leap.value])
-                    if (c != DungeonClass.Empty) setOf(c) else emptySet()
-                } else emptySet()
+        return when {
+            LocationUtils.F7Phase == 1 -> {
+                if (p1Enabled.value && ! BossPhaseDetector.isMaxorDead) classFromChoice(p1Leap.value) else emptySet()
             }
-            BossPhaseDetector.Phase.STORM -> {
+            BossPhaseDetector.isStormPhase -> {
                 if (! p2Enabled.value) return emptySet()
                 val pos = mc.player?.position() ?: return emptySet()
                 val choice = when {
@@ -302,28 +291,20 @@ object LeapMenuFeatures: Feature(
                     yellowPillarBox.contains(pos) -> yellowPillarLeap.value
                     else -> 0
                 }
-                if (choice > 0) {
-                    val c = DungeonClass.fromName(classOptions[choice])
-                    if (c != DungeonClass.Empty) setOf(c) else emptySet()
-                } else emptySet()
+                classFromChoice(choice)
             }
-            BossPhaseDetector.Phase.GOLDOR -> {
-                if (p3Enabled.value) {
-                    val sec = BossPhaseDetector.playerSection ?: BossPhaseDetector.goldorSection
-                    when (sec) {
-                        1 -> resolveMultiTarget(BossPhaseDetector.s1LeapIndex, listOf(s1Leap1, s1Leap2, s1Leap3, s1Leap4), s1Count.value)
-                        2 -> resolveMultiTarget(BossPhaseDetector.s2LeapIndex, listOf(s2Leap1, s2Leap2, s2Leap3, s2Leap4), s2Count.value)
-                        3 -> resolveMultiTarget(BossPhaseDetector.s3LeapIndex, listOf(s3Leap1, s3Leap2, s3Leap3, s3Leap4), s3Count.value)
-                        4 -> resolveMultiTarget(BossPhaseDetector.s4LeapIndex, listOf(s4Leap1, s4Leap2, s4Leap3), s4Count.value)
-                        else -> emptySet()
-                    }
-                } else emptySet()
+            BossPhaseDetector.isGoldorPhase -> {
+                if (! p3Enabled.value) return emptySet()
+                when (BossPhaseDetector.currentSection) {
+                    1 -> resolveMultiTarget(BossPhaseDetector.s1LeapIndex, listOf(s1Leap1, s1Leap2, s1Leap3, s1Leap4), s1Count.value)
+                    2 -> resolveMultiTarget(BossPhaseDetector.s2LeapIndex, listOf(s2Leap1, s2Leap2, s2Leap3, s2Leap4), s2Count.value)
+                    3 -> resolveMultiTarget(BossPhaseDetector.s3LeapIndex, listOf(s3Leap1, s3Leap2, s3Leap3, s3Leap4), s3Count.value)
+                    4 -> resolveMultiTarget(BossPhaseDetector.s4LeapIndex, listOf(s4Leap1, s4Leap2, s4Leap3), s4Count.value)
+                    else -> emptySet()
+                }
             }
-            BossPhaseDetector.Phase.P5 -> {
-                if (p5Enabled.value && relicLeap.value > 0) {
-                    val c = DungeonClass.fromName(classOptions[relicLeap.value])
-                    if (c != DungeonClass.Empty) setOf(c) else emptySet()
-                } else emptySet()
+            LocationUtils.F7Phase == 5 -> {
+                if (p5Enabled.value) classFromChoice(relicLeap.value) else emptySet()
             }
             else -> emptySet()
         }

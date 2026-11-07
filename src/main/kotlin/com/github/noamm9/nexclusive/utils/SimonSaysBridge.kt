@@ -2,10 +2,15 @@ package com.github.noamm9.nexclusive.utils
 
 import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.features.impl.floor7.devices.SimonSays
+import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.location.LocationUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.world.level.block.Blocks
-import net.minecraft.world.phys.*
+import net.minecraft.world.phys.AABB
+import net.minecraft.world.phys.BlockHitResult
+import net.minecraft.world.phys.HitResult
+import net.minecraft.world.phys.Vec2
+import net.minecraft.world.phys.Vec3
 import java.lang.reflect.Field
 import kotlin.math.abs
 
@@ -75,8 +80,7 @@ object SimonSaysBridge {
     }
 
     fun isDeviceInClickingPhase(): Boolean {
-        val level = mc.level ?: return false
-        val inPhase = level.getBlockState(buttonCheckPos).block == Blocks.STONE_BUTTON
+        val inPhase = WorldUtils.getBlockAt(buttonCheckPos) == Blocks.STONE_BUTTON
         if (! inPhase && wasInClickingPhase) resetPhase()
         return inPhase
     }
@@ -108,9 +112,7 @@ object SimonSaysBridge {
             buttonFieldCache?.get(first) as? BlockPos
         }.getOrNull() ?: return null
 
-        val level = mc.level ?: return null
-        if (level.getBlockState(pos).block != Blocks.STONE_BUTTON) return null
-
+        if (WorldUtils.getBlockAt(pos) != Blocks.STONE_BUTTON) return null
         return pos
     }
 
@@ -176,8 +178,7 @@ object SimonSaysBridge {
 
         val player = mc.player ?: return false
         val eyePos = player.eyePosition
-        val lookVec = player.lookAngle
-        val endVec = eyePos.add(lookVec.scale(6.0))
+        val endVec = eyePos.add(player.lookAngle.scale(6.0))
 
         val aabb = AABB(
             targetButton.x + 0.85,
@@ -198,7 +199,4 @@ object SimonSaysBridge {
         val ratio = (percent / 100.0).coerceIn(0.1, 1.0)
         return abs(offset.x) <= 0.15 * ratio && abs(offset.y) <= 0.20 * ratio
     }
-
-    fun isInCenterArea(targetButton: BlockPos, sizePercent: Number): Boolean =
-        isInTargetArea(targetButton, sizePercent)
 }

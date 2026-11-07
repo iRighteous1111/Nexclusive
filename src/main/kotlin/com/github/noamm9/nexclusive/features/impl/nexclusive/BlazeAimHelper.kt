@@ -18,6 +18,7 @@ import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.PlayerUtils
+import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.enums.Puzzle
 import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
@@ -34,7 +35,6 @@ import net.minecraft.world.phys.Vec3
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.math.hypot
 
 object BlazeAimHelper : Feature(
     name = "Blaze Aim Helper",
@@ -90,10 +90,18 @@ object BlazeAimHelper : Feature(
         return id.contains("BOW") || id == "TERMINATOR"
     }
 
-    private fun isBlazeArmorStand(name: String): Boolean {
-        if (!name.contains("Blaze", ignoreCase = true)) return false
+    private fun parseBlazeHealth(name: String): Int? {
+        if (!name.contains("Blaze", ignoreCase = true)) return null
         val slashIndex = name.indexOf('/')
-        return slashIndex != -1 && slashIndex > 0 && slashIndex < name.length - 1
+        if (slashIndex == -1) return null
+
+        var end = slashIndex + 1
+        while (end < name.length && (name[end].isDigit() || name[end] == ',')) {
+            end++
+        }
+        if (end <= slashIndex + 1) return null
+
+        return name.substring(slashIndex + 1, end).replace(",", "").toIntOrNull()
     }
 
     private fun hasNearbyBlazeArmorStands(): Boolean {
@@ -102,7 +110,7 @@ object BlazeAimHelper : Feature(
         for (entity in lvl.entitiesForRendering()) {
             if (entity is ArmorStand && entity.distanceToSqr(p) <= 45.0 * 45.0) {
                 val name = entity.customName?.unformattedText ?: continue
-                if (isBlazeArmorStand(name)) return true
+                if (parseBlazeHealth(name) != null) return true
             }
         }
         return false
@@ -114,9 +122,7 @@ object BlazeAimHelper : Feature(
             return
         }
 
-        val room = ScanUtils.currentRoom
-        val roomName = room?.name
-
+        val roomName = ScanUtils.currentRoom?.name
         if (roomName != null) {
             if (roomName.contains("Blaze", ignoreCase = true)) {
                 inBlazeRoom = true
@@ -130,50 +136,24 @@ object BlazeAimHelper : Feature(
         val hasBlazePuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE || it == Puzzle.HIGHER_BLAZE }
         if (!hasBlazePuzzle && !inBlazeRoom) return
 
-        val hasEntities = (blazes.isNotEmpty() && blazes.any { it.isAlive && !it.isRemoved }) || hasNearbyBlazeArmorStands()
+        val hasEntities = blazes.any { it.isAlive && !it.isRemoved } || hasNearbyBlazeArmorStands()
         if (hasEntities) {
             inBlazeRoom = true
-            val isLowerPuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE }
-            val isHigherPuzzle = DungeonListener.puzzles.any { it == Puzzle.HIGHER_BLAZE }
             reversed = when {
-                isLowerPuzzle -> true
-                isHigherPuzzle -> false
-                else -> {
-                    val pY = player.y
-                    val blazeY = blazes.firstOrNull()?.y ?: pY
-                    pY < 95.0 || blazeY < 95.0
-                }
+                DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE } -> true
+                DungeonListener.puzzles.any { it == Puzzle.HIGHER_BLAZE } -> false
+                else -> (blazes.firstOrNull()?.y ?: player.y) < 95.0
             }
-            return
-        }
-
-        if (inBlazeRoom) {
+        } else if (inBlazeRoom) {
             resetAll()
         }
-    }
-
-    private fun parseBlazeHealth(name: String): Int? {
-        if (!name.contains("Blaze", ignoreCase = true)) return null
-        val slashIndex = name.indexOf('/')
-        if (slashIndex == -1) return null
-
-        var end = slashIndex + 1
-        while (end < name.length && (name[end].isDigit() || name[end] == ',')) {
-            end++
-        }
-        if (end <= slashIndex + 1) return null
-
-        val hpStr = name.substring(slashIndex + 1, end).replace(",", "")
-        return hpStr.toIntOrNull()
     }
 
     private fun getBlazeTargetPos(target: Blaze): Vec3 {
         val bb = target.boundingBox
         val height = bb.maxY - bb.minY
-        val clampedOffset = hitboxOffset.value.coerceIn(-1.0, 1.0)
-        val factor = 0.5 + 0.5 * clampedOffset
-        val targetY = bb.minY + height * factor
-        return Vec3((bb.minX + bb.maxX) / 2.0, targetY, (bb.minZ + bb.maxZ) / 2.0)
+        val factor = 0.5 + 0.5 * hitboxOffset.value.coerceIn(-1.0, 1.0)
+        return Vec3((bb.minX + bb.maxX) / 2.0, bb.minY + height * factor, (bb.minZ + bb.maxZ) / 2.0)
     }
 
     private fun updateTargetBlaze() {
@@ -183,11 +163,8 @@ object BlazeAimHelper : Feature(
         }
         val target = blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
         targetBlaze = target
-        if (target == null) {
-            targetHasLineOfSight = false
-            return
-        }
-        val p = mc.player ?: run {
+        val p = mc.player
+        if (target == null || p == null) {
             targetHasLineOfSight = false
             return
         }
@@ -200,8 +177,7 @@ object BlazeAimHelper : Feature(
         if (mc.crosshairPickEntity?.id == blaze.id) return true
         val lookVec = MathUtils.getLookVec(player.yRot, player.xRot)
         val rayEnd = eyePos.add(lookVec.scale(60.0))
-        val bb = blaze.boundingBox.inflate(0.05)
-        return bb.clip(eyePos, rayEnd).isPresent
+        return blaze.boundingBox.inflate(0.05).clip(eyePos, rayEnd).isPresent
     }
 
     private fun handleShoot() {
@@ -215,13 +191,12 @@ object BlazeAimHelper : Feature(
 
         val isLooking = isLookingAtBlaze(target, eyePos)
         val screenPos = ProjectionUtils.worldToScreen(target.position().add(0.0, target.bbHeight / 2.0, 0.0))
-        val isNearScreen = screenPos != null && CircleRenderer.distanceToCenter(screenPos) <= helperRadius.value
+        val isNearScreen = CircleRenderer.isInsideCircle(screenPos, helperRadius.value)
 
         if (isLooking || isNearScreen) {
             lastShotTime = now
             shotBlazes[target.id] = now
-            currentAimingBlazeId = null
-            aimLockStartTime = 0L
+            resetAimState()
             updateTargetBlaze()
         }
     }
@@ -235,23 +210,13 @@ object BlazeAimHelper : Feature(
         var iterations = 0
 
         while (iterations++ < 16) {
-            val clip = ClipContext(start, targetPos, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player)
-            val hit = level.clip(clip)
-
+            val hit = level.clip(ClipContext(start, targetPos, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
             if (hit.type == HitResult.Type.MISS) return true
 
-            val state = level.getBlockState(hit.blockPos)
-            if (state.block == Blocks.IRON_BARS) {
-                val hitLoc = hit.location
-                val nextStart = hitLoc.add(dir.scale(0.1))
-                if (nextStart.distanceToSqr(eyePos) >= totalDistSq) {
-                    return true
-                }
-                if (nextStart.distanceToSqr(start) < 0.0001) {
-                    start = start.add(dir.scale(0.2))
-                } else {
-                    start = nextStart
-                }
+            if (WorldUtils.getBlockAt(hit.blockPos) == Blocks.IRON_BARS) {
+                val nextStart = hit.location.add(dir.scale(0.1))
+                if (nextStart.distanceToSqr(eyePos) >= totalDistSq) return true
+                start = if (nextStart.distanceToSqr(start) < 0.0001) start.add(dir.scale(0.2)) else nextStart
             } else {
                 return false
             }
@@ -265,21 +230,13 @@ object BlazeAimHelper : Feature(
         val distToTargetSq = eyePos.distanceToSqr(targetPos)
 
         for (other in blazes) {
-            if (other.id == targetBlazeId) continue
-            if (!other.isAlive || other.isRemoved) continue
-
-            val otherBb = other.boundingBox.inflate(0.1)
-            val hitOpt = otherBb.clip(eyePos, rayEnd)
+            if (other.id == targetBlazeId || !other.isAlive || other.isRemoved) continue
+            val hitOpt = other.boundingBox.inflate(0.1).clip(eyePos, rayEnd)
             if (!hitOpt.isPresent) continue
 
             val otherHit = hitOpt.get()
-            val otherDistSq = eyePos.distanceToSqr(otherHit)
-
-            if (otherDistSq < distToTargetSq) {
-                if (hasLineOfSight(eyePos, otherHit)) return true
-            } else {
-                if (hasLineOfSight(targetPos, otherHit)) return true
-            }
+            val checkFrom = if (eyePos.distanceToSqr(otherHit) < distToTargetSq) eyePos else targetPos
+            if (hasLineOfSight(checkFrom, otherHit)) return true
         }
         return false
     }
@@ -315,9 +272,7 @@ object BlazeAimHelper : Feature(
     }
 
     override fun init() {
-        register<WorldChangeEvent> {
-            resetAll()
-        }
+        register<WorldChangeEvent> { resetAll() }
 
         register<DungeonEvent.RoomEvent.onEnter> {
             if (event.room.name.contains("Blaze", ignoreCase = true)) {
@@ -328,12 +283,7 @@ object BlazeAimHelper : Feature(
 
         register<DungeonEvent.RoomEvent.onExit> {
             if (event.room.name.contains("Blaze", ignoreCase = true)) {
-                inBlazeRoom = false
-                resetAimState()
-                blazes.clear()
-                hpMap.clear()
-                shotBlazes.clear()
-                targetBlaze = null
+                resetAll()
             }
         }
 
@@ -341,20 +291,16 @@ object BlazeAimHelper : Feature(
         register<PlayerInteractEvent.RIGHT_CLICK.ENTITY> { handleShoot() }
         register<PlayerInteractEvent.RIGHT_CLICK.BLOCK> { handleShoot() }
         register<MouseClickEvent> {
-            if (event.button == 1 && event.action == 1) {
-                handleShoot()
-            }
+            if (event.button == 1 && event.action == 1) handleShoot()
         }
 
         register<TickEvent.Start> {
             updateRoomState()
-            if (!inBlazeRoom) return@register
-            scanBlazes()
+            if (inBlazeRoom) scanBlazes()
         }
 
         register<RenderOverlayEvent> {
-            if (!drawCircle.value) return@register
-            if (mc.gui.screen() != null) return@register
+            if (!drawCircle.value || mc.gui.screen() != null) return@register
             if (!inBlazeRoom || !isHoldingBow()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
@@ -362,21 +308,16 @@ object BlazeAimHelper : Feature(
 
         register<RenderWorldEvent> {
             if (mc.gui.screen() != null) return@register
-            if (!inBlazeRoom || !isHoldingBow()) {
-                resetAimState()
-                return@register
-            }
+            if (!inBlazeRoom || !isHoldingBow()) return@register resetAimState()
 
             val target = targetBlaze
             if (target == null || !target.isAlive || target.isRemoved || !targetHasLineOfSight) {
-                resetAimState()
-                return@register
+                return@register resetAimState()
             }
 
             val p = mc.player ?: return@register
             val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
 
-            // 1-) If crosshair is already on the target blaze, do NOT pull aim to center
             if (isLookingAtBlaze(target, eyePos)) {
                 aimLockStartTime = 0L
                 lastFrameTime = 0L
@@ -384,20 +325,16 @@ object BlazeAimHelper : Feature(
             }
 
             val targetPos = getBlazeTargetPos(target)
-
             val screenPos = ProjectionUtils.worldToScreen(targetPos)
-            if (screenPos == null || CircleRenderer.distanceToCenter(screenPos) > helperRadius.value) {
-                resetAimState()
-                return@register
+            if (!CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) {
+                return@register resetAimState()
             }
 
             val now = System.currentTimeMillis()
             val cooldownMs = (aimCooldown.value * 1000.0).toLong()
             val aimDurationMs = (aimDuration.value * 1000.0).toLong()
 
-            if (cooldownMs > 0L && now - (blazeAimedTimes[target.id] ?: 0L) < cooldownMs) {
-                return@register
-            }
+            if (cooldownMs > 0L && now - (blazeAimedTimes[target.id] ?: 0L) < cooldownMs) return@register
 
             if (target.id != currentAimingBlazeId) {
                 currentAimingBlazeId = target.id
@@ -405,56 +342,24 @@ object BlazeAimHelper : Feature(
                 lastFrameTime = 0L
             }
 
-            val targetRot = MathUtils.calcYawPitch(targetPos)
-
             if (aimLockStartTime > 0L) {
                 if (now - aimLockStartTime < aimDurationMs) {
-                    PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
+                    AimUtils.rotateTo(targetPos)
                     return@register
                 }
                 blazeAimedTimes[target.id] = now
-                currentAimingBlazeId = null
-                aimLockStartTime = 0L
+                resetAimState()
                 return@register
             }
 
             val dt = if (lastFrameTime == 0L) 0.016 else ((now - lastFrameTime) / 1000.0).coerceIn(0.001, 0.05)
             lastFrameTime = now
 
-            val currentYaw = player.yRot
-            val currentPitch = player.xRot
-            val deltaYaw = MathUtils.normalizeYaw(targetRot.yaw - currentYaw)
-            val deltaPitch = MathUtils.normalizePitch(targetRot.pitch - currentPitch)
-            val angularDist = hypot(deltaYaw.toDouble(), deltaPitch.toDouble()).toFloat()
-
-            if (angularDist <= 0.25f) {
-                PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
+            if (AimUtils.rotateTowards(targetPos, rotationSpeed.value, dt)) {
                 aimLockStartTime = now
                 if (aimDurationMs <= 0L) {
                     blazeAimedTimes[target.id] = now
-                    currentAimingBlazeId = null
-                    aimLockStartTime = 0L
-                }
-                return@register
-            }
-
-            val ratio = AimUtils.easedRatio(angularDist, rotationSpeed.value * 4.5, dt)
-            val newYaw = currentYaw + deltaYaw * ratio
-            val newPitch = currentPitch + deltaPitch * ratio
-            PlayerUtils.rotate(newYaw, newPitch)
-
-            val remaining = hypot(
-                MathUtils.normalizeYaw(targetRot.yaw - newYaw).toDouble(),
-                MathUtils.normalizePitch(targetRot.pitch - newPitch).toDouble()
-            ).toFloat()
-
-            if (remaining <= 0.25f) {
-                PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
-                aimLockStartTime = now
-                if (aimDurationMs <= 0L) {
-                    blazeAimedTimes[target.id] = now
-                    currentAimingBlazeId = null
-                    aimLockStartTime = 0L
+                    resetAimState()
                 }
             }
         }

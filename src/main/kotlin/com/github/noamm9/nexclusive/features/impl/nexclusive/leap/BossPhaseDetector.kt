@@ -3,23 +3,21 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.event.impl.MainThreadPacketReceivedEvent
 import com.github.noamm9.features.impl.floor7.devices.I4Helper
-import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils.aabb
 import com.github.noamm9.utils.location.LocationUtils
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket
-import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket
 
 object BossPhaseDetector {
-    enum class Phase { NONE, MAXOR, STORM, GOLDOR, NECRON, P5 }
-
-    var currentPhase = Phase.NONE
-        private set
     var isMaxorDead = false
         private set
-
-    // Goldor section tracking (1..4)
-    var goldorSection = 1
+    var inStorm = false
         private set
+    var isI4Done = false
+        private set
+    var inCorePhase = false
+        private set
+
+    private var goldorSection = 1
     var lastLeapSection = 1
         private set
     var s1LeapIndex = 0
@@ -31,90 +29,29 @@ object BossPhaseDetector {
     var s4LeapIndex = 0
         private set
 
-    // Necron & P5 sub-states
-    var isMiddleActive = false
-        private set
-    var isPre4Done = false
-        private set
-    var isI4Done = false
-        private set
-    var isP5StartActive = false
-        private set
-    var isRelicActive = false
-        private set
-
-    private var p5StartTime = 0L
-    private var relicPickupTime = 0L
-    private var gateDestroyedThisSection = false
     private val pre4Box = aabb(62, 127, 34, 65, 130, 37)
-    private val termRegex = Regex("^(.{1,16}) (activated|completed) a (terminal|lever|device)! \\((\\d)/(\\d)\\)$")
 
-    val playerSection: Int?
-        get() {
-            val player = mc.player ?: return null
-            val x = player.x
-            val z = player.z
-            return when {
-                x in 89.0..113.0 && z in 30.0..122.0 -> 1
-                x in 19.0..111.0 && z in 121.0..145.0 -> 2
-                x in -6.0..19.0 && z in 51.0..143.0 -> 3
-                x in -2.0..90.0 && z in 27.0..51.0 -> 4
-                else -> null
-            }
-        }
+    val currentSection: Int
+        get() = LocationUtils.P3Section ?: goldorSection
+
+    val isGoldorPhase: Boolean
+        get() = ! inStorm && LocationUtils.F7Phase == 3
+
+    val isStormPhase: Boolean
+        get() = inStorm || LocationUtils.F7Phase == 2
 
     fun recordLeapSection() {
-        lastLeapSection = playerSection ?: goldorSection
+        lastLeapSection = currentSection
     }
 
-    fun isInPre4(): Boolean {
-        val player = mc.player ?: return false
-        return I4Helper.isOnDev() || pre4Box.contains(player.position())
-    }
-
-    fun isInP3Section(): Boolean {
-        val player = mc.player ?: return false
-        return player.y <= 155.0 && playerSection != null
-    }
-
-    fun onTick() {
-        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) {
-            if (currentPhase != Phase.NONE) reset()
-            return
-        }
-        updateStage()
-    }
+    fun isInP3Section(): Boolean = LocationUtils.P3Section != null
 
     fun onChat(msg: String) {
         if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
-        handleChat(msg)
-    }
 
-    fun onPacketPre(event: MainThreadPacketReceivedEvent.Pre) {
-        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
-        val packet = event.packet as? ClientboundSetSubtitleTextPacket ?: return
-        val text = packet.text.unformattedText
-
-        if (text == "The gate has been destroyed!" || text == "The gate will open in 5 seconds!") {
-            onGateDestroyed()
-        }
-    }
-
-    fun onPacketPost(event: MainThreadPacketReceivedEvent.Post) {
-        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
-        if (currentPhase != Phase.GOLDOR || isI4Done) return
-        val packet = event.packet as? ClientboundSetEntityDataPacket ?: return
-        val level = mc.level ?: return
-        if (I4Helper.isOnDev() && level.getEntity(packet.id)?.name?.string == "Active") {
-            isI4Done = true
-            isPre4Done = true
-        }
-    }
-
-    private fun handleChat(msg: String) {
         if (msg.startsWith("You have teleported to ") && msg.endsWith("!")) {
             isI4Done = false
-            if (currentPhase == Phase.GOLDOR) {
+            if (isGoldorPhase) {
                 when (lastLeapSection) {
                     1 -> s1LeapIndex++
                     2 -> s2LeapIndex++
@@ -122,23 +59,29 @@ object BossPhaseDetector {
                     4 -> s4LeapIndex++
                 }
             }
+            return
         }
 
         when (msg) {
-            "[BOSS] Maxor: WELL! WELL! WELL! LOOK WHO'S HERE!" -> { currentPhase = Phase.MAXOR; isMaxorDead = false }
+            "[BOSS] Maxor: WELL! WELL! WELL! LOOK WHO'S HERE!" -> {
+                isMaxorDead = false
+                inStorm = false
+            }
             "[BOSS] Maxor: I'M TOO YOUNG TO DIE AGAIN!" -> isMaxorDead = true
-            "[BOSS] Storm: Pathetic Maxor, just like expected." -> { currentPhase = Phase.STORM; isMaxorDead = true }
-            "[BOSS] Goldor: Who dares trespass into my domain?" -> { currentPhase = Phase.GOLDOR; goldorSection = 1; gateDestroyedThisSection = false; resetGoldorIndices() }
-            "The gate has been destroyed!" -> onGateDestroyed()
-            "The Core entrance is opening!" -> goldorSection = 4
-            "[BOSS] Necron: I'm afraid, your journey ends now." -> currentPhase = Phase.NECRON
-            "[BOSS] Necron: That's a very impressive trick. I guess I'll have to handle this myself." -> isMiddleActive = true
-            "[BOSS] Necron: All this, for nothing..." -> { currentPhase = Phase.P5; isP5StartActive = true; p5StartTime = System.currentTimeMillis() }
-        }
-
-        termRegex.find(msg)?.destructured?.let { (_, _, _, cur, tot) ->
-            if (cur.toIntOrNull() == tot.toIntOrNull() && cur.toIntOrNull() != null && currentPhase == Phase.GOLDOR && goldorSection < 4) {
-                gateDestroyedThisSection = false
+            "[BOSS] Storm: Pathetic Maxor, just like expected." -> {
+                isMaxorDead = true
+                inStorm = true
+            }
+            "[BOSS] Goldor: Who dares trespass into my domain?" -> {
+                inStorm = false
+                inCorePhase = false
+                goldorSection = 1
+                resetGoldorIndices()
+            }
+            "The gate has been destroyed!" -> if (isGoldorPhase && goldorSection < 4) goldorSection++
+            "The Core entrance is opening!" -> {
+                goldorSection = 4
+                inCorePhase = true
             }
         }
 
@@ -146,59 +89,34 @@ object BossPhaseDetector {
             val isUser = I4Helper.DEVICE_DONE_REGEX.find(msg)?.groupValues?.get(1) == mc.user.name
             if (isUser && (I4Helper.isOnDev() || pre4Box.contains(mc.player?.position() ?: return))) {
                 isI4Done = true
-                isPre4Done = true
             }
-        }
-
-        if (msg.contains("picked the Corrupted") && msg.contains("Relic!")) {
-            isRelicActive = true
-            relicPickupTime = System.currentTimeMillis()
         }
     }
 
-    private fun onGateDestroyed() {
-        if (currentPhase == Phase.GOLDOR && goldorSection < 4 && ! gateDestroyedThisSection) {
-            goldorSection++
-            gateDestroyedThisSection = true
+    fun onPacketPost(event: MainThreadPacketReceivedEvent.Post) {
+        if (! LocationUtils.inDungeon || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return
+        if (! isGoldorPhase || isI4Done) return
+        val packet = event.packet as? ClientboundSetEntityDataPacket ?: return
+        val level = mc.level ?: return
+        if (I4Helper.isOnDev() && level.getEntity(packet.id)?.name?.string == "Active") {
+            isI4Done = true
         }
-    }
-
-    private fun updateStage() {
-        val player = mc.player ?: return
-        val y = player.y
-
-        if (currentPhase == Phase.NONE) {
-            currentPhase = when {
-                y > 210 -> Phase.MAXOR
-                y > 155 -> Phase.STORM
-                y > 100 -> Phase.GOLDOR
-                y > 45 -> Phase.NECRON
-                else -> Phase.P5
-            }
-        }
-
-        if (isP5StartActive && System.currentTimeMillis() - p5StartTime > 5000L) isP5StartActive = false
-        if (isRelicActive && System.currentTimeMillis() - relicPickupTime > 4000L) isRelicActive = false
     }
 
     private fun resetGoldorIndices() {
-        s1LeapIndex = 0; s2LeapIndex = 0; s3LeapIndex = 0; s4LeapIndex = 0
+        s1LeapIndex = 0
+        s2LeapIndex = 0
+        s3LeapIndex = 0
+        s4LeapIndex = 0
         lastLeapSection = 1
     }
 
     fun reset() {
-        currentPhase = Phase.NONE
         isMaxorDead = false
-        goldorSection = 1
-        lastLeapSection = 1
-        gateDestroyedThisSection = false
-        resetGoldorIndices()
-        isMiddleActive = false
-        isPre4Done = false
+        inStorm = false
         isI4Done = false
-        isP5StartActive = false
-        isRelicActive = false
-        p5StartTime = 0L
-        relicPickupTime = 0L
+        inCorePhase = false
+        goldorSection = 1
+        resetGoldorIndices()
     }
 }

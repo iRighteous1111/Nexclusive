@@ -12,10 +12,9 @@ import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
-import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.PlayerUtils
+import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.location.LocationUtils
-import com.github.noamm9.utils.render.RenderHelper.renderVec
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.world.level.ClipContext
@@ -24,7 +23,6 @@ import net.minecraft.world.phys.HitResult
 import net.minecraft.world.phys.Vec3
 import java.awt.Color
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.math.hypot
 
 object LeverHelper: Feature(
     name = "Lever Helper",
@@ -73,8 +71,7 @@ object LeverHelper: Feature(
     }
 
     private fun getVisibleTargetPoint(pos: BlockPos, eyePos: Vec3): Vec3? {
-        val state = level.getBlockState(pos)
-        val shape = state.getShape(level, pos)
+        val shape = WorldUtils.getStateAt(pos).getShape(level, pos)
         if (shape.isEmpty) return null
 
         val minX = pos.x + shape.min(Direction.Axis.X)
@@ -122,22 +119,9 @@ object LeverHelper: Feature(
         return bestPt
     }
 
-    private val lightsDeviceLevers = hashSetOf(
-        BlockPos(61, 136, 142), BlockPos(60, 136, 142),
-        BlockPos(59, 136, 142), BlockPos(62, 135, 142),
-        BlockPos(61, 135, 142), BlockPos(59, 135, 142),
-        BlockPos(58, 135, 142), BlockPos(62, 134, 142),
-        BlockPos(61, 134, 142), BlockPos(59, 134, 142),
-        BlockPos(58, 134, 142), BlockPos(61, 133, 142),
-        BlockPos(60, 133, 142), BlockPos(59, 133, 142)
-    )
-
     private fun isLightsDevice(pos: BlockPos): Boolean {
-        if (LocationUtils.dungeonFloorNumber == 7 || LocationUtils.inBoss) {
-            if (pos in lightsDeviceLevers) return true
-            if (pos.z == 142 && pos.x in 57 .. 63 && pos.y in 132 .. 137) return true
-        }
-        return false
+        return (LocationUtils.dungeonFloorNumber == 7 || LocationUtils.inBoss) &&
+            pos.z == 142 && pos.x in 57 .. 63 && pos.y in 132 .. 137
     }
 
     private fun hasAdjacentLever(pos: BlockPos): Boolean {
@@ -147,7 +131,7 @@ object LeverHelper: Feature(
                 for (dz in - 1 .. 1) {
                     if (dx == 0 && dy == 0 && dz == 0) continue
                     mPos.set(pos.x + dx, pos.y + dy, pos.z + dz)
-                    if (level.getBlockState(mPos).block == Blocks.LEVER) return true
+                    if (WorldUtils.getBlockAt(mPos) == Blocks.LEVER) return true
                 }
             }
         }
@@ -171,7 +155,7 @@ object LeverHelper: Feature(
                 for (dz in - 5 .. 5) {
                     mPos.set(base.x + dx, base.y + dy, base.z + dz)
                     if (eyePos.distanceToSqr(mPos.x + 0.5, mPos.y + 0.5, mPos.z + 0.5) > 25.0) continue
-                    if (level.getBlockState(mPos).block != Blocks.LEVER) continue
+                    if (WorldUtils.getBlockAt(mPos) != Blocks.LEVER) continue
 
                     val immutablePos = mPos.immutable()
                     if (ignoreLightsDevice.value && isLightsDevice(immutablePos)) continue
@@ -188,15 +172,11 @@ object LeverHelper: Feature(
     }
 
     override fun init() {
-        register<WorldChangeEvent> { resetAimState() }
-
-        register<TickEvent.Start> {
-            scanNearbyLevers()
-        }
+        register<WorldChangeEvent> { resetAll() }
+        register<TickEvent.Start> { scanNearbyLevers() }
 
         register<RenderOverlayEvent> {
-            if (! drawCircle.value) return@register
-            if (mc.gui.screen() != null) return@register
+            if (! drawCircle.value || mc.gui.screen() != null) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
             if (cachedLevers.isEmpty()) return@register
 
@@ -206,13 +186,7 @@ object LeverHelper: Feature(
         register<RenderWorldEvent> {
             if (mc.gui.screen() != null) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
-
-            if (cachedLevers.isEmpty()) {
-                currentAimingLever = null
-                aimLockStartTime = 0L
-                lastFrameTime = 0L
-                return@register
-            }
+            if (cachedLevers.isEmpty()) return@register resetLockState()
 
             val maxRadius = helperRadius.value.toDouble()
             val now = System.currentTimeMillis()
@@ -234,12 +208,7 @@ object LeverHelper: Feature(
                 }
             }
 
-            if (bestPos == null || bestTarget == null) {
-                currentAimingLever = null
-                aimLockStartTime = 0L
-                lastFrameTime = 0L
-                return@register
-            }
+            if (bestPos == null || bestTarget == null) return@register resetLockState()
 
             if (bestPos != currentAimingLever) {
                 currentAimingLever = bestPos
@@ -247,57 +216,24 @@ object LeverHelper: Feature(
                 lastFrameTime = 0L
             }
 
-            val targetRot = MathUtils.calcYawPitch(bestTarget)
-
             if (aimLockStartTime > 0L) {
                 if (now - aimLockStartTime < aimDurationMs) {
-                    PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
+                    AimUtils.rotateTo(bestTarget)
                     return@register
                 }
                 leverAimedTimes[bestPos] = now
-                currentAimingLever = null
-                aimLockStartTime = 0L
+                resetLockState()
                 return@register
             }
 
             val dt = if (lastFrameTime == 0L) 0.016 else ((now - lastFrameTime) / 1000.0).coerceIn(0.001, 0.05)
             lastFrameTime = now
 
-            val currentYaw = player.yRot
-            val currentPitch = player.xRot
-            val deltaYaw = MathUtils.normalizeYaw(targetRot.yaw - currentYaw)
-            val deltaPitch = MathUtils.normalizePitch(targetRot.pitch - currentPitch)
-            val angularDist = hypot(deltaYaw.toDouble(), deltaPitch.toDouble()).toFloat()
-
-            if (angularDist <= 0.25f) {
-                PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
+            if (AimUtils.rotateTowards(bestTarget, rotationSpeed.value, dt)) {
                 aimLockStartTime = now
                 if (aimDurationMs <= 0L) {
                     leverAimedTimes[bestPos] = now
-                    currentAimingLever = null
-                    aimLockStartTime = 0L
-                }
-                return@register
-            }
-
-            val ratio = AimUtils.easedRatio(angularDist, rotationSpeed.value * 4.5, dt)
-
-            val newYaw = currentYaw + deltaYaw * ratio
-            val newPitch = currentPitch + deltaPitch * ratio
-            PlayerUtils.rotate(newYaw, newPitch)
-
-            val remaining = hypot(
-                MathUtils.normalizeYaw(targetRot.yaw - newYaw).toDouble(),
-                MathUtils.normalizePitch(targetRot.pitch - newPitch).toDouble()
-            ).toFloat()
-
-            if (remaining <= 0.25f) {
-                PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
-                aimLockStartTime = now
-                if (aimDurationMs <= 0L) {
-                    leverAimedTimes[bestPos] = now
-                    currentAimingLever = null
-                    aimLockStartTime = 0L
+                    resetLockState()
                 }
             }
         }
@@ -305,14 +241,18 @@ object LeverHelper: Feature(
 
     override fun onDisable() {
         super.onDisable()
-        resetAimState()
+        resetAll()
     }
 
-    private fun resetAimState() {
-        cachedLevers.clear()
-        leverAimedTimes.clear()
+    private fun resetLockState() {
         currentAimingLever = null
         aimLockStartTime = 0L
         lastFrameTime = 0L
+    }
+
+    private fun resetAll() {
+        cachedLevers.clear()
+        leverAimedTimes.clear()
+        resetLockState()
     }
 }

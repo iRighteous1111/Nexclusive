@@ -9,8 +9,6 @@ import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
-import com.github.noamm9.utils.MathUtils
-import com.github.noamm9.utils.PlayerUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.world.phys.Vec3
 import kotlin.math.hypot
@@ -27,11 +25,7 @@ object ThresholdMode: SSMode {
             return false
         }
 
-        val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton)) ?: run {
-            reset()
-            return false
-        }
-
+        val screenPos = ProjectionUtils.worldToScreen(SimonSaysBridge.getTargetPoint(targetButton))
         if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) {
             reset()
             return false
@@ -53,25 +47,9 @@ object ThresholdMode: SSMode {
         if (now - buttonInCircleTime >= lockDelay.value.toLong()) isLocking = true
         if (! isLocking) return
 
-        val currentYaw = player.yRot
-        val currentPitch = player.xRot
-
-        val targetRot = MathUtils.calcYawPitch(targetVec)
-        val deltaYaw = MathUtils.normalizeYaw(targetRot.yaw - currentYaw)
-        val deltaPitch = MathUtils.normalizePitch(targetRot.pitch - currentPitch)
-        val angularDist = hypot(deltaYaw.toDouble(), deltaPitch.toDouble()).toFloat()
-
-        if (angularDist <= 0.25f) {
-            PlayerUtils.rotate(targetRot.yaw, targetRot.pitch)
-            reset()
-            onAimed()
-            return
-        }
-
-        val ratio = AimUtils.easedRatio(angularDist, thresholdRotationSpeed.value * 4.5, dt)
-        PlayerUtils.rotate(currentYaw + deltaYaw * ratio, currentPitch + deltaPitch * ratio)
-
-        if (SimonSaysBridge.isInTargetArea(targetButton, SSAimHelper.aimingOffset.value)) {
+        if (AimUtils.rotateTowards(targetVec, thresholdRotationSpeed.value, dt) ||
+            SimonSaysBridge.isInTargetArea(targetButton, SSAimHelper.aimingOffset.value)
+        ) {
             reset()
             onAimed()
         }
