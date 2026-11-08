@@ -4,11 +4,8 @@ import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.WorldUtils
-import com.github.noamm9.utils.dungeons.DungeonListener
-import com.github.noamm9.utils.dungeons.enums.Puzzle
 import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
-import com.github.noamm9.utils.location.LocationUtils
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.entity.monster.Blaze
@@ -21,12 +18,9 @@ import java.util.concurrent.*
 import kotlin.math.ceil
 
 object BlazeTracker {
-    private val blazeHpRegex = Regex("""Blaze [\d,]+/([\d,]+)❤""")
-
+    private val blazeHpRegex = Regex("""^\[Lv\d+].+Blaze [\d,]+/([\d,]+)❤$""")
     private val lowerRelSpot = BlockPos(8, 47, 13)
     private val higherRelSpot = BlockPos(9, 95, 18)
-    private val lowerFallbackSpot = BlockPos(- 32, 47, - 27)
-    private val higherFallbackSpot = BlockPos(- 150, 95, - 83)
 
     data class ShotInfo(val shotTimeMs: Long, val expectedDeathTick: Long)
 
@@ -46,83 +40,38 @@ object BlazeTracker {
         return held.`is`(Items.BOW) || held.skyblockId.let { it.contains("BOW") || it == "TERMINATOR" }
     }
 
-    private fun parseHealth(name: String): Int? {
-        return blazeHpRegex.find(name)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull()
-    }
-
-    private fun hasNearbyBlazeStands(): Boolean {
-        val p = mc.player ?: return false
-        return mc.level?.entitiesForRendering()?.any {
-            it is ArmorStand && it.distanceToSqr(p) <= 2025.0 && it.customName?.unformattedText?.let(::parseHealth) != null
-        } == true
-    }
-
-    fun onRoomEnter(roomName: String) {
-        if (! roomName.contains("Blaze", ignoreCase = true)) return
-        inBlazeRoom = true
-        reversed = roomName.equals("Lower Blaze", ignoreCase = true)
-    }
-
-    fun onRoomExit(roomName: String): Boolean {
-        if (! roomName.contains("Blaze", ignoreCase = true)) return false
-        reset()
-        return true
-    }
-
     fun updateRoomState(): Boolean {
-        if (! LocationUtils.inDungeon || LocationUtils.inBoss) {
+        val roomName = ScanUtils.currentRoom?.name
+        if (roomName == null || ! roomName.contains("Blaze", ignoreCase = true)) {
             if (inBlazeRoom) reset()
             return false
         }
 
-        val roomName = ScanUtils.currentRoom?.name
-        if (roomName != null) {
-            if (roomName.contains("Blaze", ignoreCase = true)) {
-                inBlazeRoom = true
-                reversed = roomName.contains("Lower", ignoreCase = true)
-            } else if (inBlazeRoom) {
-                reset()
-            }
-            return inBlazeRoom
-        }
-
-        val hasBlazePuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE || it == Puzzle.HIGHER_BLAZE }
-        if (! hasBlazePuzzle && ! inBlazeRoom) return false
-
-        if (blazes.any { it.isAlive && ! it.isRemoved } || hasNearbyBlazeStands()) {
-            inBlazeRoom = true
-            reversed = when {
-                Puzzle.LOWER_BLAZE in DungeonListener.puzzles -> true
-                Puzzle.HIGHER_BLAZE in DungeonListener.puzzles -> false
-                else -> (blazes.firstOrNull()?.y ?: mc.player?.y ?: 100.0) < 95.0
-            }
-        } else if (inBlazeRoom) {
-            reset()
-        }
-        return inBlazeRoom
+        inBlazeRoom = true
+        reversed = roomName.equals("Lower Blaze", ignoreCase = true)
+        return true
     }
 
     fun scanBlazes(hitboxOffset: Double) {
         val level = mc.level ?: return
-        val p = mc.player ?: return
         val found = ArrayList<Blaze>()
         hpMap.clear()
 
-        for (entity in level.entitiesForRendering()) {
-            if (entity !is ArmorStand || entity.distanceToSqr(p) > 2025.0) continue
-            val health = entity.customName?.unformattedText?.let(::parseHealth) ?: continue
+        level.entitiesForRendering().filterIsInstance<ArmorStand>().forEach { armorStand ->
+            val name = armorStand.customName?.unformattedText ?: return@forEach
+            val health = blazeHpRegex.find(name)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: return@forEach
 
             val blaze = level.getEntitiesOfClass(
                 Blaze::class.java,
-                entity.boundingBox.inflate(1.5, 3.0, 1.5)
-            ).minByOrNull { it.distanceToSqr(entity) } ?: continue
+                armorStand.boundingBox.expandTowards(0.0, - 2.0, 0.0)
+            ).firstOrNull() ?: return@forEach
 
-            if (! blaze.isAlive || blaze.isRemoved || hpMap.containsKey(blaze.id)) continue
+            if (! blaze.isAlive || blaze.isRemoved || hpMap.containsKey(blaze.id)) return@forEach
             hpMap[blaze.id] = health
             found.add(blaze)
         }
 
-        found.sortBy { hpMap[it.id] ?: Int.MAX_VALUE }
+        found.sortBy { hpMap[it.id] }
         if (reversed) found.reverse()
 
         blazes.clear()
@@ -151,14 +100,11 @@ object BlazeTracker {
         targetHasLineOfSight = hasLineOfSight(eyePos, targetPos) && ! hitsOtherBlaze(eyePos, dir, target.id)
     }
 
-    fun getOptimalSpot(): BlockPos {
-        val room = ScanUtils.currentRoom
-        val clayPos = room?.clayPos
-        val rot = room?.rotation
-        if (clayPos != null && rot != null) {
-            return ScanUtils.getRealCoord(if (reversed) lowerRelSpot else higherRelSpot, clayPos, 360 - rot)
-        }
-        return if (reversed) lowerFallbackSpot else higherFallbackSpot
+    fun getOptimalSpot(): BlockPos? {
+        val room = ScanUtils.currentRoom ?: return null
+        val clayPos = room.clayPos ?: return null
+        val rot = room.rotation ?: return null
+        return ScanUtils.getRealCoord(if (reversed) lowerRelSpot else higherRelSpot, clayPos, 360 - rot)
     }
 
     fun isStandingOnSpot(spot: BlockPos): Boolean {

@@ -56,8 +56,7 @@ object BlazeUtils: Feature(
 
     override fun init() {
         register<WorldChangeEvent> { resetAll() }
-        register<DungeonEvent.RoomEvent.onEnter> { BlazeTracker.onRoomEnter(event.room.name) }
-        register<DungeonEvent.RoomEvent.onExit> { if (BlazeTracker.onRoomExit(event.room.name)) resetAll() }
+        register<DungeonEvent.RoomEvent.onExit> { if (event.room.name.contains("Blaze", ignoreCase = true)) resetAll() }
 
         register<PlayerInteractEvent.RIGHT_CLICK.AIR>(EventPriority.HIGHEST) { onInteract(event, false) }
         register<PlayerInteractEvent.RIGHT_CLICK.ENTITY>(EventPriority.HIGHEST) { onInteract(event, false) }
@@ -148,7 +147,7 @@ object BlazeUtils: Feature(
     }
 
     private fun renderOptimalSpot(ctx: RenderContext) {
-        val spot = BlazeTracker.getOptimalSpot()
+        val spot = BlazeTracker.getOptimalSpot() ?: return
         val baseColor = if (chroma.value) Color.getHSBColor((System.currentTimeMillis() % 4000L) / 4000f, 1f, 1f) else highlightedBlockColor.value
         val fillAlpha = if (chroma.value) 110 else baseColor.alpha
 
