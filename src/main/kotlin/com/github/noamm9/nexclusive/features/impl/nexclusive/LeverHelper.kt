@@ -28,36 +28,18 @@ object LeverHelper: Feature(
     name = "Lever Helper",
     description = "Automatically aims at visible nearby levers within the circle radius."
 ) {
-    private val onlyInBoss by ToggleSetting("Only in Boss", false)
-        .withDescription("Only activates lever helper while inside a boss fight.")
+    private val onlyInBoss by ToggleSetting("Only in Boss", false).withDescription("Only activates lever helper while inside a boss fight.")
+    private val ignoreLightsDevice by ToggleSetting("Ignore Lights Device", true).withDescription("Prevents aiming at levers in the F7/M7 Lights device.")
+    private val ignoreAdjacentLevers by ToggleSetting("Ignore Adjacent Levers", false).withDescription("Prevents aiming if two levers are placed right next to each other.")
 
-    private val ignoreLightsDevice by ToggleSetting("Ignore Lights Device", true)
-        .withDescription("Prevents aiming at levers in the F7/M7 Lights device.")
+    private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px").section("Aim Radius").withDescription("Screen radius of the circle to detect levers.")
+    private val drawCircle by ToggleSetting("Draw Circle", true).withDescription("Draws the detection circle when near a visible lever.")
+    private val circleColor by ColorSetting("Circle Color", Color(255, 170, 0, 140), true).withDescription("Color and transparency of the detection circle.").showIf { drawCircle.value }
 
-    private val ignoreAdjacentLevers by ToggleSetting("Ignore Adjacent Levers", false)
-        .withDescription("Prevents aiming if two levers are placed right next to each other.")
+    private val rotationSpeed by SliderSetting("Rotation Speed", 10.0, 1.0, 50.0, 0.1).section("Aim Speed").withDescription("Speed at which your crosshair rotates towards the lever.")
 
-    private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px")
-        .section("Aim Radius")
-        .withDescription("Screen radius of the circle to detect levers.")
-
-    private val drawCircle by ToggleSetting("Draw Circle", true)
-        .withDescription("Draws the detection circle when near a visible lever.")
-
-    private val circleColor by ColorSetting("Circle Color", Color(255, 170, 0, 140), true)
-        .withDescription("Color and transparency of the detection circle.")
-        .showIf { drawCircle.value }
-
-    private val rotationSpeed by SliderSetting("Rotation Speed", 10.0, 1.0, 50.0, 0.1)
-        .section("Aim Speed")
-        .withDescription("Speed at which your crosshair rotates towards the lever.")
-
-    private val aimDuration by SliderSetting("Aim Duration", 0.5, 0.0, 5.0, 0.1, "s")
-        .section("Timing")
-        .withDescription("Duration to hold aim on the lever while moving past it before releasing.")
-
-    private val aimCooldown by SliderSetting("Aim Cooldown", 1.0, 0.0, 5.0, 0.1, "s")
-        .withDescription("Time before re-aiming at the same lever. Set to 0 to continuously aim as long as it's in the circle.")
+    private val aimDuration by SliderSetting("Aim Duration", 0.5, 0.0, 5.0, 0.1, "s").section("Timing").withDescription("Duration to hold aim on the lever while moving past it before releasing.")
+    private val aimCooldown by SliderSetting("Aim Cooldown", 1.0, 0.0, 5.0, 0.1, "s").withDescription("Time before re-aiming at the same lever. Set to 0 to continuously aim as long as it's in the circle.")
 
     private val cachedLevers = CopyOnWriteArrayList<Pair<BlockPos, Vec3>>()
     private val leverAimedTimes = HashMap<BlockPos, Long>()

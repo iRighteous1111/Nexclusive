@@ -1,7 +1,7 @@
 package com.github.noamm9.nexclusive.mixins;
 
 import com.github.noamm9.features.Feature;
-import com.github.noamm9.nexclusive.features.impl.nexclusive.BlazeUtils;
+import com.github.noamm9.nexclusive.features.impl.nexclusive.blaze.BlazeUtils;
 import com.github.noamm9.nexclusive.features.impl.nexclusive.leap.LeapMenuFeatures;
 import com.github.noamm9.ui.clickgui.components.FeatureConfigWindow;
 import org.spongepowered.asm.mixin.Dynamic;
