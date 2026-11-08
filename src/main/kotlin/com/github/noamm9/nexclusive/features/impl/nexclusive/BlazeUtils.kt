@@ -4,19 +4,23 @@ import com.github.noamm9.config.types.ColorSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
 import com.github.noamm9.event.impl.DungeonEvent
-import com.github.noamm9.event.impl.MouseClickEvent
 import com.github.noamm9.event.impl.PlayerInteractEvent
 import com.github.noamm9.event.impl.RenderOverlayEvent
 import com.github.noamm9.event.impl.RenderWorldEvent
 import com.github.noamm9.event.impl.TickEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
+import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
+import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.ColorUtils
+import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.MathUtils
+import com.github.noamm9.utils.MathUtils.center
 import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.dungeons.DungeonListener
@@ -25,6 +29,9 @@ import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.RenderHelper.renderVec
+import com.github.noamm9.utils.render.world.Render3D.renderBlock
+import com.github.noamm9.utils.render.world.Render3D.renderTracer
+import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.entity.monster.Blaze
 import net.minecraft.world.item.Items
@@ -35,40 +42,91 @@ import net.minecraft.world.phys.Vec3
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.math.ceil
 
-object BlazeAimHelper : Feature(
-    name = "Blaze Aim Helper",
-    description = "Automatically aims at the correct blaze in the Blaze puzzle."
+object BlazeUtils: Feature(
+    name = "Blaze Utils",
+    description = "Blaze puzzle aim helper, optimal spot highlight, triggerbot, and wrong click blocker."
 ) {
+    // 1. Aim Helper
+    private val aimHelper by ToggleSetting("Enable Aim Helper", true)
+        .section("Aim Helper")
+        .withDescription("Automatically aims at the correct blaze inside the detection circle.")
+
     private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px")
-        .section("Aim Radius")
         .withDescription("Screen radius of the circle to detect and aim at the correct blaze.")
+        .showIf { aimHelper.value }
 
     private val drawCircle by ToggleSetting("Draw Circle", true)
         .withDescription("Draws the detection circle while inside the Blaze room.")
+        .showIf { aimHelper.value }
 
     private val circleColor by ColorSetting("Circle Color", Color(255, 170, 0, 140), true)
         .withDescription("Color and transparency of the detection circle.")
-        .showIf { drawCircle.value }
+        .showIf { aimHelper.value && drawCircle.value }
 
     private val hitboxOffset by SliderSetting("Hitbox Offset", 0.0, -1.0, 1.0, 0.05)
-        .section("Targeting")
         .withDescription("Vertical target offset: 0 is center, + is upper half up to top, - is lower half down to bottom.")
+        .showIf { aimHelper.value }
 
     private val rotationSpeed by SliderSetting("Rotation Speed", 10.0, 1.0, 50.0, 0.1)
-        .section("Aim Speed")
         .withDescription("Speed at which your crosshair rotates towards the blaze.")
+        .showIf { aimHelper.value }
 
     private val aimDuration by SliderSetting("Aim Duration", 0.5, 0.0, 5.0, 0.1, "s")
-        .section("Timing")
         .withDescription("Duration to hold aim on the blaze before releasing.")
+        .showIf { aimHelper.value }
 
     private val aimCooldown by SliderSetting("Aim Cooldown", 1.0, 0.0, 5.0, 0.1, "s")
         .withDescription("Time before re-aiming at the same blaze. Set to 0 to continuously aim.")
+        .showIf { aimHelper.value }
+
+    // 2. Extras
+    private val highlightOptimalSpot by ToggleSetting("Highlight Optimal Spot", false)
+        .section("Extras")
+        .withDescription("Highlights the optimal standing block for Lower and Higher Blaze.")
+
+    private val highlightedBlockColor by ColorSetting("Highlighted Block Color", Color(0, 255, 255, 110), true)
+        .withDescription("Color of the highlighted optimal spot block.")
+        .showIf { highlightOptimalSpot.value && ! chroma.value }
+
+    private val chroma by ToggleSetting("Chroma", false)
+        .withDescription("Cycles the highlighted block and tracer through RGB colors.")
+        .showIf { highlightOptimalSpot.value }
+
+    private val drawTracer by ToggleSetting("Draw Tracer", false)
+        .withDescription("Draws a tracer from your crosshair to the optimal spot until you stand on it.")
+        .showIf { highlightOptimalSpot.value }
+
+    private val blazeTriggerbot by ToggleSetting("Blaze Triggerbot", false)
+        .withDescription("Automatically shoots once with Terminator when aiming at the correct blaze.")
+
+    private val interactDelay by SliderSetting("Interact Delay", 2, 0, 10, 1, "t")
+        .withDescription("Game ticks to wait after aiming at the blaze before shooting.")
+        .showIf { blazeTriggerbot.value }
+
+    private val prefireTicks by SliderSetting("Prefire Ticks", 3, 0, 10, 1, "t")
+        .withDescription("Ticks before the previous shot blaze dies to prefire the next blaze.")
+        .showIf { blazeTriggerbot.value }
+
+    private val blockWrongClicks by ToggleSetting("Block Wrong Clicks", false)
+        .withDescription("Prevents shooting if aiming at a wrong blaze or if the arrow would hit another blaze behind it.")
+
+    private val overrideClicks by SliderSetting("Override Clicks", 2, 1, 10, 1)
+        .withDescription("Consecutive clicks required to override and shoot anyway.")
+        .showIf { blockWrongClicks.value }
+
+    // Relative coordinates from room clayPos (matches -31, 48, -26 in Lower Blaze and -149, 96, -82 in Higher Blaze)
+    private val lowerBlazeRelSpot = BlockPos(9, 48, 14)
+    private val higherBlazeRelSpot = BlockPos(8, 96, 19)
+    private val lowerBlazeFallbackSpot = BlockPos(-31, 48, -26)
+    private val higherBlazeFallbackSpot = BlockPos(-149, 96, -82)
+
+    private data class ShotInfo(val shotTimeMs: Long, val expectedDeathTick: Long)
 
     private val blazes = CopyOnWriteArrayList<Blaze>()
     private val hpMap = ConcurrentHashMap<Int, Int>()
-    private val shotBlazes = ConcurrentHashMap<Int, Long>()
+    private val shotBlazes = ConcurrentHashMap<Int, ShotInfo>()
 
     private var inBlazeRoom = false
     private var reversed = false
@@ -81,6 +139,12 @@ object BlazeAimHelper : Feature(
     private var lastFrameTime = 0L
     private var lastShotTime = 0L
 
+    private var currentTick = 0L
+    private var triggerbotHoverTicks = 0
+    private var lastHoveredBlazeId: Int? = null
+    private var isTriggerbotClicking = false
+    private var consecutiveWrongClicks = 0
+
     private fun isHoldingBow(): Boolean {
         val p = mc.player ?: return false
         val held = p.mainHandItem
@@ -91,7 +155,7 @@ object BlazeAimHelper : Feature(
     }
 
     private fun parseBlazeHealth(name: String): Int? {
-        if (!name.contains("Blaze", ignoreCase = true)) return null
+        if (! name.contains("Blaze", ignoreCase = true)) return null
         val slashIndex = name.indexOf('/')
         if (slashIndex == -1) return null
 
@@ -117,7 +181,7 @@ object BlazeAimHelper : Feature(
     }
 
     private fun updateRoomState() {
-        if (!LocationUtils.inDungeon || LocationUtils.inBoss) {
+        if (! LocationUtils.inDungeon || LocationUtils.inBoss) {
             if (inBlazeRoom) resetAll()
             return
         }
@@ -134,9 +198,9 @@ object BlazeAimHelper : Feature(
         }
 
         val hasBlazePuzzle = DungeonListener.puzzles.any { it == Puzzle.LOWER_BLAZE || it == Puzzle.HIGHER_BLAZE }
-        if (!hasBlazePuzzle && !inBlazeRoom) return
+        if (! hasBlazePuzzle && ! inBlazeRoom) return
 
-        val hasEntities = blazes.any { it.isAlive && !it.isRemoved } || hasNearbyBlazeArmorStands()
+        val hasEntities = blazes.any { it.isAlive && ! it.isRemoved } || hasNearbyBlazeArmorStands()
         if (hasEntities) {
             inBlazeRoom = true
             reversed = when {
@@ -149,6 +213,24 @@ object BlazeAimHelper : Feature(
         }
     }
 
+    private fun getOptimalSpotPos(): BlockPos {
+        val room = ScanUtils.currentRoom
+        val clayPos = room?.clayPos
+        val rot = room?.rotation
+        if (clayPos != null && rot != null) {
+            val rel = if (reversed) lowerBlazeRelSpot else higherBlazeRelSpot
+            return ScanUtils.getRealCoord(rel, clayPos, 360 - rot)
+        }
+        return if (reversed) lowerBlazeFallbackSpot else higherBlazeFallbackSpot
+    }
+
+    private fun isStandingOnSpot(spot: BlockPos): Boolean {
+        val p = mc.player ?: return false
+        return p.x in (spot.x - 0.35)..(spot.x + 1.35) &&
+            p.z in (spot.z - 0.35)..(spot.z + 1.35) &&
+            p.y in (spot.y - 0.5)..(spot.y + 2.5)
+    }
+
     private fun getBlazeTargetPos(target: Blaze): Vec3 {
         val bb = target.boundingBox
         val height = bb.maxY - bb.minY
@@ -158,10 +240,10 @@ object BlazeAimHelper : Feature(
 
     private fun updateTargetBlaze() {
         val now = System.currentTimeMillis()
-        shotBlazes.entries.removeIf { (id, shotTime) ->
-            now - shotTime > 3000L || blazes.none { it.id == id && it.isAlive && !it.isRemoved }
+        shotBlazes.entries.removeIf { (id, info) ->
+            now - info.shotTimeMs > 3000L || blazes.none { it.id == id && it.isAlive && ! it.isRemoved }
         }
-        val target = blazes.firstOrNull { it.isAlive && !it.isRemoved && it.id !in shotBlazes.keys }
+        val target = blazes.firstOrNull { it.isAlive && ! it.isRemoved && it.id !in shotBlazes.keys }
         targetBlaze = target
         val p = mc.player
         if (target == null || p == null) {
@@ -170,7 +252,7 @@ object BlazeAimHelper : Feature(
         }
         val eyePos = p.eyePosition
         val targetPos = getBlazeTargetPos(target)
-        targetHasLineOfSight = hasLineOfSight(eyePos, targetPos) && !isLineBlockedByOtherBlaze(eyePos, targetPos, target.id)
+        targetHasLineOfSight = hasLineOfSight(eyePos, targetPos) && ! isLineBlockedByOtherBlaze(eyePos, targetPos, target.id)
     }
 
     private fun isLookingAtBlaze(blaze: Blaze, eyePos: Vec3): Boolean {
@@ -180,25 +262,118 @@ object BlazeAimHelper : Feature(
         return blaze.boundingBox.inflate(0.05).clip(eyePos, rayEnd).isPresent
     }
 
-    private fun handleShoot() {
-        if (!inBlazeRoom || !isHoldingBow()) return
+    private fun willRayHitAnotherBlaze(eyePos: Vec3, lookVec: Vec3, allowedBlazeId: Int?): Boolean {
+        val rayEnd = eyePos.add(lookVec.scale(60.0))
+        for (other in blazes) {
+            if (! other.isAlive || other.isRemoved) continue
+            if (other.id == allowedBlazeId || other.id in shotBlazes.keys) continue
+            val hitOpt = other.boundingBox.inflate(0.12).clip(eyePos, rayEnd)
+            if (! hitOpt.isPresent) continue
+            if (hasLineOfSight(eyePos, hitOpt.get())) return true
+        }
+        return false
+    }
+
+    private fun isShotSafe(eyePos: Vec3): Boolean {
+        val target = targetBlaze ?: return false
+        if (! target.isAlive || target.isRemoved) return false
+        val lookVec = MathUtils.getLookVec(player.yRot, player.xRot)
+
+        // Must be looking at the target blaze, have clear line of sight, and not pierce/hit any other blaze
+        if (! isLookingAtBlaze(target, eyePos)) return false
+        val targetPos = getBlazeTargetPos(target)
+        if (! hasLineOfSight(eyePos, targetPos)) return false
+        if (isLineBlockedByOtherBlaze(eyePos, targetPos, target.id)) return false
+        if (willRayHitAnotherBlaze(eyePos, lookVec, target.id)) return false
+        return true
+    }
+
+    private fun recordShot(target: Blaze) {
+        val now = System.currentTimeMillis()
+        val p = mc.player
+        val dist = if (p != null) p.distanceTo(target).toDouble() else 15.0
+        val flightTicks = ceil(dist / 2.8).toLong().coerceIn(2L, 12L)
+        lastShotTime = now
+        shotBlazes[target.id] = ShotInfo(now, currentTick + flightTicks)
+        resetAimState()
+        triggerbotHoverTicks = 0
+        lastHoveredBlazeId = null
+        updateTargetBlaze()
+    }
+
+    private fun handlePlayerInteract(event: PlayerInteractEvent, isLeftClick: Boolean) {
+        if (! inBlazeRoom || blazes.isEmpty() || ! isHoldingBow()) return
+        if (isLeftClick && player.mainHandItem.skyblockId != "TERMINATOR") return
+        if (isTriggerbotClicking) return
+
+        val p = mc.player ?: return
+        val eyePos = p.eyePosition
+
+        if (blockWrongClicks.value && ! isShotSafe(eyePos)) {
+            consecutiveWrongClicks++
+            if (consecutiveWrongClicks < overrideClicks.value) {
+                event.cancel()
+                val needed = overrideClicks.value - consecutiveWrongClicks
+                ChatUtils.modMessage("§cBlocked wrong blaze shot! Click §e$needed §cmore time(s) to override.")
+                return
+            }
+            consecutiveWrongClicks = 0
+            return
+        }
+
+        consecutiveWrongClicks = 0
         val now = System.currentTimeMillis()
         if (now - lastShotTime < 100L) return
 
-        val p = mc.player ?: return
-        val eyePos = p.renderVec.add(0.0, p.eyeHeight.toDouble(), 0.0)
         val target = targetBlaze ?: return
-
         val isLooking = isLookingAtBlaze(target, eyePos)
         val screenPos = ProjectionUtils.worldToScreen(target.position().add(0.0, target.bbHeight / 2.0, 0.0))
-        val isNearScreen = CircleRenderer.isInsideCircle(screenPos, helperRadius.value)
+        val isNearScreen = aimHelper.value && CircleRenderer.isInsideCircle(screenPos, helperRadius.value)
 
         if (isLooking || isNearScreen) {
-            lastShotTime = now
-            shotBlazes[target.id] = now
-            resetAimState()
-            updateTargetBlaze()
+            recordShot(target)
         }
+    }
+
+    private fun runTriggerbotTick() {
+        if (! blazeTriggerbot.value || mc.gui.screen() != null || ! inBlazeRoom || ! isHoldingBow()) {
+            triggerbotHoverTicks = 0
+            lastHoveredBlazeId = null
+            return
+        }
+
+        val p = mc.player ?: return
+        val target = targetBlaze
+        val eyePos = p.eyePosition
+
+        if (target == null || ! isShotSafe(eyePos)) {
+            triggerbotHoverTicks = 0
+            lastHoveredBlazeId = null
+            return
+        }
+
+        if (lastHoveredBlazeId != target.id) {
+            lastHoveredBlazeId = target.id
+            triggerbotHoverTicks = 0
+        } else {
+            triggerbotHoverTicks++
+        }
+
+        if (triggerbotHoverTicks < interactDelay.value) return
+
+        // If a previously shot blaze is still alive in the world, only prefire when within prefireTicks of its death
+        val activeShotDeathTick = shotBlazes.entries
+            .filter { (id, _) -> blazes.any { it.id == id && it.isAlive && ! it.isRemoved } }
+            .maxOfOrNull { it.value.expectedDeathTick }
+
+        if (activeShotDeathTick != null && currentTick < activeShotDeathTick - prefireTicks.value) {
+            return
+        }
+
+        isTriggerbotClicking = true
+        PlayerUtils.rightClick()
+        isTriggerbotClicking = false
+        recordShot(target)
     }
 
     private fun hasLineOfSight(eyePos: Vec3, targetPos: Vec3): Boolean {
@@ -230,9 +405,9 @@ object BlazeAimHelper : Feature(
         val distToTargetSq = eyePos.distanceToSqr(targetPos)
 
         for (other in blazes) {
-            if (other.id == targetBlazeId || !other.isAlive || other.isRemoved) continue
-            val hitOpt = other.boundingBox.inflate(0.1).clip(eyePos, rayEnd)
-            if (!hitOpt.isPresent) continue
+            if (other.id == targetBlazeId || other.id in shotBlazes.keys || ! other.isAlive || other.isRemoved) continue
+            val hitOpt = other.boundingBox.inflate(0.12).clip(eyePos, rayEnd)
+            if (! hitOpt.isPresent) continue
 
             val otherHit = hitOpt.get()
             val checkFrom = if (eyePos.distanceToSqr(otherHit) < distToTargetSq) eyePos else targetPos
@@ -258,7 +433,7 @@ object BlazeAimHelper : Feature(
                 entity.boundingBox.inflate(1.5, 3.0, 1.5)
             ).minByOrNull { it.distanceToSqr(entity) } ?: continue
 
-            if (!blaze.isAlive || blaze.isRemoved || hpMap.containsKey(blaze.id)) continue
+            if (! blaze.isAlive || blaze.isRemoved || hpMap.containsKey(blaze.id)) continue
             hpMap[blaze.id] = health
             foundBlazes.add(blaze)
         }
@@ -287,31 +462,58 @@ object BlazeAimHelper : Feature(
             }
         }
 
-        register<PlayerInteractEvent.RIGHT_CLICK.AIR> { handleShoot() }
-        register<PlayerInteractEvent.RIGHT_CLICK.ENTITY> { handleShoot() }
-        register<PlayerInteractEvent.RIGHT_CLICK.BLOCK> { handleShoot() }
-        register<MouseClickEvent> {
-            if (event.button == 1 && event.action == 1) handleShoot()
-        }
+        register<PlayerInteractEvent.RIGHT_CLICK.AIR>(EventPriority.HIGHEST) { handlePlayerInteract(event, false) }
+        register<PlayerInteractEvent.RIGHT_CLICK.ENTITY>(EventPriority.HIGHEST) { handlePlayerInteract(event, false) }
+        register<PlayerInteractEvent.RIGHT_CLICK.BLOCK>(EventPriority.HIGHEST) { handlePlayerInteract(event, false) }
+        register<PlayerInteractEvent.LEFT_CLICK.AIR>(EventPriority.HIGHEST) { handlePlayerInteract(event, true) }
+        register<PlayerInteractEvent.LEFT_CLICK.ENTITY>(EventPriority.HIGHEST) { handlePlayerInteract(event, true) }
+        register<PlayerInteractEvent.LEFT_CLICK.BLOCK>(EventPriority.HIGHEST) { handlePlayerInteract(event, true) }
 
         register<TickEvent.Start> {
+            currentTick++
             updateRoomState()
-            if (inBlazeRoom) scanBlazes()
+            if (! inBlazeRoom) return@register
+            scanBlazes()
+            runTriggerbotTick()
         }
 
         register<RenderOverlayEvent> {
-            if (!drawCircle.value || mc.gui.screen() != null) return@register
-            if (!inBlazeRoom || !isHoldingBow()) return@register
+            if (! aimHelper.value || ! drawCircle.value || mc.gui.screen() != null) return@register
+            if (! inBlazeRoom || ! isHoldingBow()) return@register
 
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
-            if (mc.gui.screen() != null) return@register
-            if (!inBlazeRoom || !isHoldingBow()) return@register resetAimState()
+            if (! inBlazeRoom) return@register
+
+            if (highlightOptimalSpot.value) {
+                val spot = getOptimalSpotPos()
+                val baseColor = if (chroma.value) {
+                    Color.getHSBColor((System.currentTimeMillis() % 4000L) / 4000f, 1f, 1f)
+                } else {
+                    highlightedBlockColor.value
+                }
+                val fillAlpha = if (chroma.value) 110 else baseColor.alpha
+                event.ctx.renderBlock(
+                    spot,
+                    outlineColor = baseColor.withAlpha(255),
+                    fillColor = baseColor.withAlpha(fillAlpha),
+                    outline = true,
+                    fill = true,
+                    phase = true
+                )
+                if (drawTracer.value && ! isStandingOnSpot(spot)) {
+                    event.ctx.renderTracer(Vec3.atCenterOf(spot), baseColor.withAlpha(255))
+                }
+            }
+
+            if (! aimHelper.value || mc.gui.screen() != null || ! isHoldingBow()) {
+                return@register resetAimState()
+            }
 
             val target = targetBlaze
-            if (target == null || !target.isAlive || target.isRemoved || !targetHasLineOfSight) {
+            if (target == null || ! target.isAlive || target.isRemoved || ! targetHasLineOfSight) {
                 return@register resetAimState()
             }
 
@@ -326,7 +528,7 @@ object BlazeAimHelper : Feature(
 
             val targetPos = getBlazeTargetPos(target)
             val screenPos = ProjectionUtils.worldToScreen(targetPos)
-            if (!CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) {
+            if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) {
                 return@register resetAimState()
             }
 
@@ -386,5 +588,9 @@ object BlazeAimHelper : Feature(
         targetHasLineOfSight = false
         inBlazeRoom = false
         reversed = false
+        triggerbotHoverTicks = 0
+        lastHoveredBlazeId = null
+        isTriggerbotClicking = false
+        consecutiveWrongClicks = 0
     }
 }

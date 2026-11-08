@@ -8,6 +8,7 @@ import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.PartyUtils
+import com.github.noamm9.utils.ThreadUtils
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.DungeonListener.DualTime
 import com.github.noamm9.utils.dungeons.DungeonListener.DualTime.Companion.minus
@@ -23,6 +24,9 @@ object LagAnnounce: Feature(
 
     private val precision by SliderSetting("Precision", 4, 2, 7, 1)
         .withDescription("Number of decimal places to show for the lag time.")
+
+    private val delay by SliderSetting("Delay", 5, 0, 50, 1, "t")
+        .withDescription("Delay in ticks before sending the lag message after the run ends.")
 
     private var startNano = 0L
     private var startTicks = 0L
@@ -58,13 +62,18 @@ object LagAnnounce: Feature(
 
             val formatted = String.format(Locale.US, "%.${precision.value}fs", lagSeconds)
 
-            if (PartyUtils.isInParty && PartyUtils.partySize > 1) {
-                val prefix = if (naTag.value) "[NA] " else ""
-                ChatUtils.sendPartyMessage("${prefix}Estimated Time Lost to Lag: $formatted")
-            } else {
-                val msg = "Estimated Time Lost to Lag: &c$formatted"
-                if (naTag.value) ChatUtils.modMessage(msg) else ChatUtils.chat(msg)
+            val announce = Runnable {
+                if (PartyUtils.isInParty && PartyUtils.partySize > 1) {
+                    val prefix = if (naTag.value) "[NA] " else ""
+                    ChatUtils.sendPartyMessage("${prefix}Estimated Time Lost to Lag: $formatted")
+                } else {
+                    val msg = "Estimated Time Lost to Lag: &c$formatted"
+                    if (naTag.value) ChatUtils.modMessage(msg) else ChatUtils.chat(msg)
+                }
             }
+
+            if (delay.value <= 0) announce.run()
+            else ThreadUtils.scheduledTask(delay.value, announce)
         }
     }
 }
