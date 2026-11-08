@@ -23,10 +23,10 @@ import kotlin.math.ceil
 object BlazeTracker {
     private val blazeHpRegex = Regex("""Blaze [\d,]+/([\d,]+)❤""")
 
-    private val lowerRelSpot = BlockPos(9, 48, 14)
-    private val higherRelSpot = BlockPos(8, 96, 19)
-    private val lowerFallbackSpot = BlockPos(- 31, 48, - 26)
-    private val higherFallbackSpot = BlockPos(- 149, 96, - 82)
+    private val lowerRelSpot = BlockPos(8, 47, 13)
+    private val higherRelSpot = BlockPos(9, 95, 18)
+    private val lowerFallbackSpot = BlockPos(- 32, 47, - 27)
+    private val higherFallbackSpot = BlockPos(- 150, 95, - 83)
 
     data class ShotInfo(val shotTimeMs: Long, val expectedDeathTick: Long)
 
@@ -163,9 +163,7 @@ object BlazeTracker {
 
     fun isStandingOnSpot(spot: BlockPos): Boolean {
         val p = mc.player ?: return false
-        return p.x in (spot.x - 0.35) .. (spot.x + 1.35) &&
-            p.z in (spot.z - 0.35) .. (spot.z + 1.35) &&
-            p.y in (spot.y - 0.5) .. (spot.y + 2.5)
+        return p.distanceToSqr(spot.x + 0.5, spot.y + 1.0, spot.z + 0.5) <= 12.25
     }
 
     fun getTargetPos(target: Blaze, hitboxOffset: Double): Vec3 {
