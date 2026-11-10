@@ -12,6 +12,7 @@ import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
+import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.RenderHelper.renderVec
 import com.github.noamm9.utils.render.world.Render3D.renderBlock
 import com.github.noamm9.utils.render.world.Render3D.renderTracer
@@ -74,12 +75,12 @@ object BlazeUtils: Feature(
 
         register<RenderOverlayEvent> {
             if (! aimHelper.value || ! drawCircle.value || mc.gui.screen() != null) return@register
-            if (! BlazeTracker.inBlazeRoom || ! BlazeTracker.isHoldingBow()) return@register
+            if (! BlazeTracker.inBlazeRoom || LocationUtils.inBoss || ! BlazeTracker.isHoldingBow()) return@register
             event.drawAimCircle(helperRadius.value, circleColor.value)
         }
 
         register<RenderWorldEvent> {
-            if (! BlazeTracker.inBlazeRoom) return@register
+            if (! BlazeTracker.inBlazeRoom || LocationUtils.inBoss) return@register
             if (highlightOptimalSpot.value) renderOptimalSpot(event.ctx)
             renderAimHelper()
         }
