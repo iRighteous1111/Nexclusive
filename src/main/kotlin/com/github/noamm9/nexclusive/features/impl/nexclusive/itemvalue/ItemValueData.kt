@@ -28,26 +28,10 @@ object ItemValueData {
     @Volatile var loaded = false
         private set
 
-    val crimsonTiers = mapOf(
-        "HOT_" to 1,
-        "BURNING_" to 2,
-        "FIERY_" to 3,
-        "INFERNAL_" to 4
-    )
-
+    val crimsonTiers = mapOf("HOT_" to 1, "BURNING_" to 2, "FIERY_" to 3, "INFERNAL_" to 4)
     val crimsonArmors = setOf("CRIMSON", "TERROR", "AURORA", "FERVOR", "HOLLOW")
-
-    val masterStars = listOf(
-        "FIRST_MASTER_STAR",
-        "SECOND_MASTER_STAR",
-        "THIRD_MASTER_STAR",
-        "FOURTH_MASTER_STAR",
-        "FIFTH_MASTER_STAR"
-    )
-
-    val stackingEnchants = setOf(
-        "compact", "cultivating", "expertise", "hecatomb", "champion", "toxophilite", "absorb"
-    )
+    val masterStars = listOf("FIRST_MASTER_STAR", "SECOND_MASTER_STAR", "THIRD_MASTER_STAR", "FOURTH_MASTER_STAR", "FIFTH_MASTER_STAR")
+    val stackingEnchants = setOf("compact", "cultivating", "expertise", "hecatomb", "champion", "toxophilite", "absorb")
 
     val alwaysActiveEnchants = mapOf(
         "compact" to setOf("PROMISING_PICKAXE", "PICKONIMBUS"),
@@ -69,9 +53,7 @@ object ItemValueData {
         "divine_gift", "ice_cold", "pessimist", "pesterminator", "transylvanian"
     )
 
-    val onlyTierFivePrices = setOf(
-        "ferocious_mana", "hardened_mana", "mana_vampire", "strong_mana"
-    )
+    val onlyTierFivePrices = setOf("ferocious_mana", "hardened_mana", "mana_vampire", "strong_mana")
 
     val endcapEnchants = mapOf(
         "scavenger" to (6 to "GOLDEN_BOUNTY"),
@@ -118,7 +100,15 @@ object ItemValueData {
         return "§f" + id.lowercase().split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
     }
 
-    private fun getRarityColorCode(tier: String?): String = when (tier?.uppercase()) {
+    fun getEnchantName(rawKey: String, level: Int): String {
+        val cleanKey = rawKey.lowercase()
+        val info = enchantNames[cleanKey] ?: enchantNames[cleanKey.removePrefix("ultimate_")]
+        val display = info?.first ?: cleanKey.removePrefix("ultimate_").split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+        val isUlt = info?.second == true || cleanKey.startsWith("ultimate_")
+        return "${if (isUlt) "§d§l" else "§9"}$display $level"
+    }
+
+    private fun getRarityColorCode(tier: String?) = when (tier?.uppercase()) {
         "COMMON" -> "§f"
         "UNCOMMON" -> "§a"
         "RARE" -> "§9"
@@ -129,15 +119,6 @@ object ItemValueData {
         "SPECIAL", "VERY_SPECIAL" -> "§c"
         "ULTIMATE", "SUPREME" -> "§4"
         else -> "§f"
-    }
-
-    fun getEnchantName(rawKey: String, level: Int): String {
-        val cleanKey = rawKey.lowercase()
-        val info = enchantNames[cleanKey] ?: enchantNames[cleanKey.removePrefix("ultimate_")]
-        val display = info?.first ?: cleanKey.removePrefix("ultimate_").split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
-        val isUlt = info?.second == true || cleanKey.startsWith("ultimate_")
-        val prefix = if (isUlt) "§d§l" else "§9"
-        return "$prefix$display $level"
     }
 
     private fun loadLocalEnchants() = runCatching {
@@ -157,19 +138,12 @@ object ItemValueData {
         val items = data["items"]?.jsonArray ?: return@runCatching
         for (element in items) {
             val obj = element.jsonObject
-            val rawId = obj["id"]?.jsonPrimitive?.content ?: continue
-            val id = rawId.replace(':', '-')
+            val id = obj["id"]?.jsonPrimitive?.content?.replace(':', '-') ?: continue
             val name = obj["name"]?.jsonPrimitive?.content ?: continue
-            val tierColor = getRarityColorCode(obj["tier"]?.jsonPrimitive?.content)
-            itemNames[id] = "$tierColor$name"
+            itemNames[id] = "${getRarityColorCode(obj["tier"]?.jsonPrimitive?.content)}$name"
 
             obj["upgrade_costs"]?.jsonArray?.let { tiersArr ->
-                val tiers = ArrayList<List<CostEntry>>(tiersArr.size)
-                for (tierEl in tiersArr) {
-                    val entries = parseCostArray(tierEl.jsonArray)
-                    tiers.add(entries)
-                }
-                upgradeCosts[id] = tiers
+                upgradeCosts[id] = tiersArr.map { parseCostArray(it.jsonArray) }
             }
 
             obj["prestige"]?.jsonObject?.get("costs")?.jsonArray?.let { costsArr ->
@@ -192,28 +166,25 @@ object ItemValueData {
         }
     }
 
-    private fun parseCostArray(arr: JsonArray): List<CostEntry> {
-        val list = ArrayList<CostEntry>(arr.size)
-        for (el in arr) {
-            val c = el.jsonObject
-            when (val type = c["type"]?.jsonPrimitive?.content) {
-                "ESSENCE" -> {
-                    val essenceType = c["essence_type"]?.jsonPrimitive?.content ?: continue
-                    val amount = c["amount"]?.jsonPrimitive?.longOrNull ?: continue
-                    list.add(CostEntry(type, "ESSENCE_$essenceType", amount))
-                }
-                "ITEM" -> {
-                    val itemId = c["item_id"]?.jsonPrimitive?.content?.replace(':', '-') ?: continue
-                    val amount = c["amount"]?.jsonPrimitive?.longOrNull ?: continue
-                    list.add(CostEntry(type, itemId, amount))
-                }
-                "COINS" -> {
-                    val amount = c["coins"]?.jsonPrimitive?.longOrNull ?: c["amount"]?.jsonPrimitive?.longOrNull ?: continue
-                    list.add(CostEntry(type, "SKYBLOCK_COIN", amount))
-                }
+    private fun parseCostArray(arr: JsonArray): List<CostEntry> = arr.mapNotNull { el ->
+        val c = el.jsonObject
+        when (val type = c["type"]?.jsonPrimitive?.content) {
+            "ESSENCE" -> {
+                val essenceType = c["essence_type"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                val amount = c["amount"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
+                CostEntry(type, "ESSENCE_$essenceType", amount)
             }
+            "ITEM" -> {
+                val itemId = c["item_id"]?.jsonPrimitive?.content?.replace(':', '-') ?: return@mapNotNull null
+                val amount = c["amount"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
+                CostEntry(type, itemId, amount)
+            }
+            "COINS" -> {
+                val amount = c["coins"]?.jsonPrimitive?.longOrNull ?: c["amount"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
+                CostEntry(type, "SKYBLOCK_COIN", amount)
+            }
+            else -> null
         }
-        return list
     }
 
     private suspend fun loadReforgeStones() = runCatching {
