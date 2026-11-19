@@ -6,6 +6,7 @@ import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
 import com.github.noamm9.features.IFeatureWindow
 import com.github.noamm9.nexclusive.utils.AimUtils
+import com.github.noamm9.nexclusive.utils.ArrowTrajectory
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
@@ -13,7 +14,6 @@ import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ColorUtils
 import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.PlayerUtils
-import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.render.RenderHelper.renderVec
 import com.github.noamm9.utils.render.world.Render3D.renderBlock
@@ -96,12 +96,12 @@ object BlazeUtils: Feature(
 
     private fun onInteract(event: PlayerInteractEvent, isLeftClick: Boolean) {
         if (! BlazeTracker.inBlazeRoom || BlazeTracker.blazes.isEmpty() || ! BlazeTracker.isHoldingBow()) return
-        if (isLeftClick && player.mainHandItem.skyblockId != "TERMINATOR") return
+        if (isLeftClick && ! ArrowTrajectory.isTerminator()) return
         if (isTriggerbotClicking) return
 
-        val eyePos = player.eyePosition
+        val shot = BlazeTracker.checkShot()
 
-        if (blockWrongClicks.value && ! BlazeTracker.isShotSafe(eyePos, hitboxOffset.value)) {
+        if (blockWrongClicks.value && shot.hitsWrong) {
             consecutiveWrongClicks ++
             if (consecutiveWrongClicks < overrideClicks.value) {
                 event.cancel()
@@ -117,11 +117,10 @@ object BlazeUtils: Feature(
         if (System.currentTimeMillis() - BlazeTracker.lastShotTime < 100L) return
 
         val target = BlazeTracker.targetBlaze ?: return
-        val isLooking = BlazeTracker.isLookingAtBlaze(target, eyePos)
         val screenPos = ProjectionUtils.worldToScreen(target.position().add(0.0, target.bbHeight / 2.0, 0.0))
         val isNearScreen = aimHelper.value && CircleRenderer.isInsideCircle(screenPos, helperRadius.value)
 
-        if (isLooking || isNearScreen) markShot(target)
+        if (shot.hitsTarget || isNearScreen) markShot(target)
     }
 
     private fun tickTriggerbot() {
@@ -130,7 +129,8 @@ object BlazeUtils: Feature(
         }
 
         val target = BlazeTracker.targetBlaze
-        if (target == null || ! BlazeTracker.isShotSafe(player.eyePosition, hitboxOffset.value)) {
+        val shot = BlazeTracker.checkShot(targetMargin = 0.1)
+        if (target == null || ! shot.hitsTarget || shot.hitsWrong) {
             return resetTriggerbot()
         }
 
@@ -164,7 +164,7 @@ object BlazeUtils: Feature(
             phase = true
         )
 
-        if (drawTracer.value && ! BlazeTracker.isStandingOnSpot(spot)) {
+        if (drawTracer.value && BlazeTracker.blazes.isNotEmpty() && ! BlazeTracker.isStandingOnSpot(spot)) {
             ctx.renderTracer(Vec3.atCenterOf(spot), baseColor.withAlpha(255))
         }
     }

@@ -1,6 +1,7 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.blaze
 
 import com.github.noamm9.NoammAddons.mc
+import com.github.noamm9.nexclusive.utils.ArrowTrajectory
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.WorldUtils
@@ -25,6 +26,7 @@ object BlazeTracker {
     private val higherRelSpot = BlockPos(9, 95, 18)
 
     data class ShotInfo(val shotTimeMs: Long, val expectedDeathTick: Long)
+    data class ShotCheck(val hitsTarget: Boolean, val hitsWrong: Boolean)
 
     val blazes = CopyOnWriteArrayList<Blaze>()
     private val hpMap = ConcurrentHashMap<Int, Int>()
@@ -113,8 +115,8 @@ object BlazeTracker {
 
         val eyePos = p.eyePosition
         val targetPos = getTargetPos(target, hitboxOffset)
-        val dir = targetPos.subtract(eyePos).normalize()
-        targetHasLineOfSight = hasLineOfSight(eyePos, targetPos) && ! hitsOtherBlaze(eyePos, dir, target.id)
+        val rot = MathUtils.calcYawPitch(targetPos)
+        targetHasLineOfSight = hasLineOfSight(eyePos, targetPos) && ! checkShot(rot.yaw, rot.pitch).hitsWrong
     }
 
     fun getOptimalSpot(): BlockPos? {
@@ -142,24 +144,31 @@ object BlazeTracker {
         return blaze.boundingBox.inflate(0.05).clip(eyePos, rayEnd).isPresent
     }
 
-    fun hitsOtherBlaze(eyePos: Vec3, dir: Vec3, ignoreId: Int): Boolean {
-        val rayEnd = eyePos.add(dir.scale(60.0))
-        return blazes.any { other ->
-            other.id != ignoreId && other.id !in shotBlazes.keys && other.isAlive && ! other.isRemoved &&
-                other.boundingBox.inflate(0.12).clip(eyePos, rayEnd).orElse(null)?.let { hasLineOfSight(eyePos, it) } == true
+    fun checkShot(
+        yaw: Float = mc.player?.yRot ?: 0f,
+        pitch: Float = mc.player?.xRot ?: 0f,
+        targetMargin: Double = 0.3,
+        wrongMargin: Double = 0.3
+    ): ShotCheck {
+        val target = targetBlaze?.takeIf { it.isAlive && ! it.isRemoved }
+        var hitsTarget = false
+        var hitsWrong = false
+
+        ArrowTrajectory.forEachSegment(yaw, pitch) { start, end ->
+            for (blaze in blazes) {
+                if (! blaze.isAlive || blaze.isRemoved || blaze.id in shotBlazes.keys) continue
+                if (target != null && blaze.id == target.id) {
+                    if (! hitsTarget && blaze.boundingBox.inflate(targetMargin).clip(start, end).isPresent) {
+                        hitsTarget = true
+                    }
+                } else if (blaze.boundingBox.inflate(wrongMargin).clip(start, end).isPresent) {
+                    hitsWrong = true
+                }
+            }
+            ! (hitsTarget && hitsWrong)
         }
-    }
 
-    fun isShotSafe(eyePos: Vec3, hitboxOffset: Double): Boolean {
-        val p = mc.player ?: return false
-        val target = targetBlaze?.takeIf { it.isAlive && ! it.isRemoved } ?: return false
-        if (! isLookingAtBlaze(target, eyePos)) return false
-
-        val targetPos = getTargetPos(target, hitboxOffset)
-        if (! hasLineOfSight(eyePos, targetPos)) return false
-        if (hitsOtherBlaze(eyePos, targetPos.subtract(eyePos).normalize(), target.id)) return false
-        if (hitsOtherBlaze(eyePos, MathUtils.getLookVec(p.yRot, p.xRot), target.id)) return false
-        return true
+        return ShotCheck(hitsTarget, hitsWrong)
     }
 
     fun canPrefire(prefireTicks: Int): Boolean {
