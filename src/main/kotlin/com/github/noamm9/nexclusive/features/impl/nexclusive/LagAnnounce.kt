@@ -13,6 +13,7 @@ import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.DungeonListener.DualTime
 import com.github.noamm9.utils.dungeons.DungeonListener.DualTime.Companion.minus
 import com.github.noamm9.utils.location.LocationUtils
+import com.github.noamm9.utils.location.WorldType
 import java.util.Locale
 
 object LagAnnounce: Feature(
@@ -38,7 +39,7 @@ object LagAnnounce: Feature(
         }
 
         register<ChatMessageEvent> {
-            if (! LocationUtils.inDungeon) return@register
+            if (LocationUtils.world != WorldType.Catacombs) return@register
             if (event.unformattedText == "[NPC] Mort: Here, I found this map when I first entered the dungeon.") {
                 startNano = System.nanoTime()
                 startTicks = DungeonListener.currentTime

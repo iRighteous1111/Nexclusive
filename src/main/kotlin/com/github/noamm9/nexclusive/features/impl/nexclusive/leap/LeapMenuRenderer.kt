@@ -2,11 +2,11 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.leap
 
 import com.github.noamm9.NoammAddons.mc
 import com.github.noamm9.event.impl.ScreenEvent
+import com.github.noamm9.features.impl.dungeon.leapmenu.GridLeapRenderer
+import com.github.noamm9.features.impl.dungeon.leapmenu.LeapMenu
 import com.github.noamm9.ui.utils.Resolution
-import com.github.noamm9.utils.ColorUtils.lerp
 import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.MathUtils.aabb
-import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.DungeonPlayer
 import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawFloatingRect
@@ -16,11 +16,6 @@ import com.github.noamm9.utils.render.Render2D.drawString
 import java.awt.Color
 
 object LeapMenuRenderer {
-    private val boxBg = Color(33, 33, 33)
-    private val boxBgHover = Color(67, 67, 67)
-    private val doorOpenerBg = Color(135, 135, 135)
-    private val doorOpenerBgHover = Color.WHITE
-    private val inCoreColor = Color(0, 120, 0)
     private val inCoreBox = aabb(68, 106, 54, 42, 155, 119)
 
     fun isPlayerInCore(player: DungeonPlayer): Boolean {
@@ -29,16 +24,9 @@ object LeapMenuRenderer {
         return ! player.isDead && inCoreBox.contains(entity.x, entity.y, entity.z)
     }
 
-    private fun leapBoxColor(player: DungeonPlayer, isHovered: Boolean) = when {
-        LeapMenuFeatures.showLastDoorOpener && DungeonListener.lastDoorOpener == player -> if (isHovered) doorOpenerBgHover else doorOpenerBg
-        LeapMenuFeatures.tintDeadPlayers && player.isDead -> boxBg.lerp(Color.RED, 0.2f).let { if (isHovered) it.brighter() else it }
-        LeapMenuFeatures.highlightInCore && isPlayerInCore(player) -> inCoreColor
-        else -> if (isHovered) boxBgHover else boxBg
-    }
-
     fun render(
         event: ScreenEvent.PreRender,
-        players: Array<DungeonPlayer?>,
+        players: Array<LeapMenu.LeapMenuPlayer?>,
         targetIndices: Set<Int>,
         useClassColor: Boolean,
         changeSize: Boolean,
@@ -51,7 +39,7 @@ object LeapMenuRenderer {
     ) {
         Resolution.push(event.context)
 
-        val userScale = (LeapMenuFeatures.menuScale / 100f) * 2.0f
+        val userScale = (LeapMenu.scale.value.toFloat() / 100f) * 2.0f
         val screenWidth = Resolution.width / userScale
         val screenHeight = Resolution.height / userScale
 
@@ -69,19 +57,17 @@ object LeapMenuRenderer {
         val startX = (screenWidth - gridW) / 2f
         val startY = (screenHeight - gridH) / 2f
 
-        val hoveredIndex = getHoveredIndex()
+        val hoveredIndex = GridLeapRenderer.getHoveredIndex()
         val hasTargets = targetIndices.isNotEmpty()
 
-        players.forEachIndexed { i, player ->
-            if (player == null) return@forEachIndexed
+        players.forEachIndexed { i, entry ->
+            val player = entry?.player ?: return@forEachIndexed
 
             val isTarget = i in targetIndices
-            val scaleFactor = if (changeSize) {
-                when {
-                    isTarget -> targetScale
-                    hasTargets -> otherScale
-                    else -> 1.0f
-                }
+            val scaleFactor = if (changeSize) when {
+                isTarget -> targetScale
+                hasTargets -> otherScale
+                else -> 1.0f
             } else 1.0f
 
             val boxWidth = baseBoxW * scaleFactor
@@ -97,11 +83,11 @@ object LeapMenuRenderer {
             val playerHighlightColor = if (useClassColor) player.clazz.color else borderCol
 
             val cardBg = if (isTarget && highlightCorrect) {
-                val alpha = if (playerHighlightColor.alpha in 1..254) playerHighlightColor.alpha else 180
+                val alpha = if (playerHighlightColor.alpha in 1 .. 254) playerHighlightColor.alpha else 180
                 val finalAlpha = if (isHovered) (alpha + 35).coerceAtMost(255) else alpha
                 playerHighlightColor.withAlpha(finalAlpha)
             } else {
-                leapBoxColor(player, isHovered).withAlpha(190)
+                GridLeapRenderer.leapBoxColor(player, isHovered).withAlpha(190)
             }
 
             event.context.drawFloatingRect(x, y, boxWidth, boxHeight, cardBg)
@@ -136,21 +122,5 @@ object LeapMenuRenderer {
 
         pose.popMatrix()
         Resolution.pop(event.context)
-    }
-
-    fun getHoveredIndex(): Int? {
-        val window = mc.window
-        val cx = window.screenWidth / 2
-        val cy = window.screenHeight / 2
-        val mx = mc.mouseHandler.xpos()
-        val my = mc.mouseHandler.ypos()
-
-        return when {
-            mx < cx && my < cy -> 0
-            mx > cx && my < cy -> 1
-            mx < cx && my > cy -> 2
-            mx > cx && my > cy -> 3
-            else -> null
-        }
     }
 }

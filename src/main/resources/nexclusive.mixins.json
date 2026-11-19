@@ -7,7 +7,6 @@
     "MixinCategoryType"
   ],
   "client": [
-    "MixinFeatureConfigWindow",
     "MixinMouseHandler",
     "MixinWidgetFactory"
   ],

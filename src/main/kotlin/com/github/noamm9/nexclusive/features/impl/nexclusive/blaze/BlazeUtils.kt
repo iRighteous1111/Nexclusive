@@ -4,11 +4,13 @@ import com.github.noamm9.config.types.*
 import com.github.noamm9.event.impl.*
 import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
+import com.github.noamm9.features.IFeatureWindow
 import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.ChatUtils
+import com.github.noamm9.utils.ColorUtils
 import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
@@ -23,7 +25,8 @@ import java.awt.Color
 object BlazeUtils: Feature(
     name = "Blaze Utils",
     description = "Blaze puzzle aim helper, optimal spot highlight, triggerbot, and wrong click blocker."
-) {
+), IFeatureWindow {
+    override fun Feature.createWindow() = IFeatureWindow.CBW(this)
     private val aimHelper by ToggleSetting("Enable Aim Helper", true).section("Aim Helper").withDescription("Automatically aims at the correct blaze inside the detection circle.")
     private val helperRadius by SliderSetting("Helper Radius", 80, 10, 300, 5, "px").withDescription("Screen radius of the circle to detect and aim at the correct blaze.").showIf { aimHelper.value }
     private val drawCircle by ToggleSetting("Draw Circle", true).withDescription("Draws the detection circle while inside the Blaze room.").showIf { aimHelper.value }
@@ -149,7 +152,7 @@ object BlazeUtils: Feature(
 
     private fun renderOptimalSpot(ctx: RenderContext) {
         val spot = BlazeTracker.getOptimalSpot() ?: return
-        val baseColor = if (chroma.value) Color.getHSBColor((System.currentTimeMillis() % 4000L) / 4000f, 1f, 1f) else highlightedBlockColor.value
+        val baseColor = if (chroma.value) ColorUtils.chromaColor(System.currentTimeMillis().toDouble(), period = 4000.0) else highlightedBlockColor.value
         val fillAlpha = if (chroma.value) 110 else baseColor.alpha
 
         ctx.renderBlock(

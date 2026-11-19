@@ -3,12 +3,14 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.itemvalue
 import com.github.noamm9.init.DataDownloader
 import com.github.noamm9.init.NetworkLoop
 import com.github.noamm9.utils.ChatUtils.addColor
+import com.github.noamm9.utils.JsonUtils
 import com.github.noamm9.utils.ThreadUtils
 import com.github.noamm9.utils.items.ItemRarity
-import com.github.noamm9.utils.network.WebUtils
 import kotlinx.serialization.json.*
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.HttpsURLConnection
 
 object ItemValueData {
     private const val ITEMS_URL = "https://api.hypixel.net/v2/resources/skyblock/items"
@@ -133,8 +135,17 @@ object ItemValueData {
         }
     }
 
-    private suspend fun loadHypixelItems() = runCatching {
-        val data = WebUtils.getAs<JsonObject>(ITEMS_URL).getOrThrow()
+    private fun fetchJson(url: String): JsonObject {
+        val conn = URI.create(url).toURL().openConnection() as HttpsURLConnection
+        conn.connectTimeout = 15_000
+        conn.readTimeout = 15_000
+        conn.setRequestProperty("User-Agent", "Nexclusive")
+        val text = conn.inputStream.bufferedReader().use { it.readText() }
+        return JsonUtils.json.decodeFromString(text)
+    }
+
+    private fun loadHypixelItems() = runCatching {
+        val data = fetchJson(ITEMS_URL)
         val items = data["items"]?.jsonArray ?: return@runCatching
         for (element in items) {
             val obj = element.jsonObject
@@ -187,8 +198,8 @@ object ItemValueData {
         }
     }
 
-    private suspend fun loadReforgeStones() = runCatching {
-        val data = WebUtils.getAs<JsonObject>(REFORGE_URL).getOrThrow()
+    private fun loadReforgeStones() = runCatching {
+        val data = fetchJson(REFORGE_URL)
         for ((key, el) in data) {
             val obj = el.jsonObject
             val reforgeName = obj["reforgeName"]?.jsonPrimitive?.content ?: continue

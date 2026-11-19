@@ -7,6 +7,7 @@ import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
+import com.github.noamm9.utils.location.WorldType
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.entity.monster.Blaze
@@ -46,7 +47,7 @@ object BlazeTracker {
         val roomName = ScanUtils.currentRoom?.name
         if (
             p == null ||
-            ! LocationUtils.inDungeon ||
+            LocationUtils.world != WorldType.Catacombs ||
             LocationUtils.inBoss ||
             p.x > - 8.0 ||
             p.z > - 8.0 ||
