@@ -8,15 +8,11 @@ import com.github.noamm9.features.IFeatureWindow
 import com.github.noamm9.features.impl.dungeon.leapmenu.GridLeapRenderer
 import com.github.noamm9.features.impl.dungeon.leapmenu.LeapMenu
 import com.github.noamm9.nexclusive.ui.PlusMinusSetting
-import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.MathUtils.aabb
 import com.github.noamm9.utils.dungeons.DungeonListener
 import com.github.noamm9.utils.dungeons.enums.DungeonClass
 import com.github.noamm9.utils.location.LocationUtils
-import com.github.noamm9.utils.render.Render2D.drawCenteredString
-import net.minecraft.client.gui.screens.Screen
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.client.resources.sounds.SimpleSoundInstance
 import net.minecraft.sounds.SoundEvents
 import java.awt.Color
@@ -72,41 +68,29 @@ object LeapMenuFeatures: Feature(
     // --- P3 (Goldor) (Boss 2) ---
     private val p3Enabled by ToggleSetting("Enable P3", true).showIf { selectedBoss.value == 2 }
 
-    private fun sectionCounter(key: String, label: String, max: Int): SliderSetting<Int> {
-        val count = SliderSetting(key, 1, 1, max, 1).hideIf { true }.apply(configSettings::add)
-        PlusMinusSetting(
-            name = label,
-            countSupplier = { count.value },
-            minCount = 1,
-            maxCount = max,
-            onAdd = { if (count.value < max) count.value += 1 },
-            onRemove = { if (count.value > 1) count.value -= 1 }
-        ).showIf { selectedBoss.value == 2 && p3Enabled.value }.apply(configSettings::add)
-        return count
+    private class P3Section(val count: PlusMinusSetting, val leaps: List<MultiCheckboxSetting>)
+
+    private fun p3Section(index: Int, label: String, max: Int): P3Section {
+        val visible = { selectedBoss.value == 2 && p3Enabled.value }
+        val count = PlusMinusSetting(label, maxCount = max)
+            .jsonName("s${index}_count")
+            .showIf(visible)
+            .apply(configSettings::add)
+        val leaps = (1 .. max).map { step ->
+            MultiCheckboxSetting("S$index Leap $step", defaultClasses())
+                .jsonName("s${index}_target_$step")
+                .showIf { visible() && count.value >= step }
+                .apply(configSettings::add)
+        }
+        return P3Section(count, leaps)
     }
 
-    private val s1Count = sectionCounter("s1_count", "§aSection 1 (S1)", 4)
-    private val s1Leap1 by MultiCheckboxSetting("S1 Leap 1", defaultClasses()).jsonName("s1_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
-    private val s1Leap2 by MultiCheckboxSetting("S1 Leap 2", defaultClasses()).jsonName("s1_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 2 }
-    private val s1Leap3 by MultiCheckboxSetting("S1 Leap 3", defaultClasses()).jsonName("s1_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 3 }
-    private val s1Leap4 by MultiCheckboxSetting("S1 Leap 4", defaultClasses()).jsonName("s1_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s1Count.value >= 4 }
-
-    private val s2Count = sectionCounter("s2_count", "§eSection 2 (S2)", 4)
-    private val s2Leap1 by MultiCheckboxSetting("S2 Leap 1", defaultClasses()).jsonName("s2_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
-    private val s2Leap2 by MultiCheckboxSetting("S2 Leap 2", defaultClasses()).jsonName("s2_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 2 }
-    private val s2Leap3 by MultiCheckboxSetting("S2 Leap 3", defaultClasses()).jsonName("s2_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 3 }
-    private val s2Leap4 by MultiCheckboxSetting("S2 Leap 4", defaultClasses()).jsonName("s2_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s2Count.value >= 4 }
-
-    private val s3Count = sectionCounter("s3_count", "§cSection 3 (S3)", 4)
-    private val s3Leap1 by MultiCheckboxSetting("S3 Leap 1", defaultClasses()).jsonName("s3_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
-    private val s3Leap2 by MultiCheckboxSetting("S3 Leap 2", defaultClasses()).jsonName("s3_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 2 }
-    private val s3Leap3 by MultiCheckboxSetting("S3 Leap 3", defaultClasses()).jsonName("s3_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 3 }
-    private val s3Leap4 by MultiCheckboxSetting("S3 Leap 4", defaultClasses()).jsonName("s3_target_4").showIf { selectedBoss.value == 2 && p3Enabled.value && s3Count.value >= 4 }
-
-    private val s4Count = sectionCounter("s4_count", "§bSection 4 (S4)", 3)
-    private val s4Leap1 by MultiCheckboxSetting("S4 Leap 1", defaultClasses()).jsonName("s4_target_1").showIf { selectedBoss.value == 2 && p3Enabled.value }
-    private val s4Leap2 by MultiCheckboxSetting("S4 Leap 2", defaultClasses()).jsonName("s4_target_2").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 2 }
-    private val s4Leap3 by MultiCheckboxSetting("S4 Leap 3", defaultClasses()).jsonName("s4_target_3").showIf { selectedBoss.value == 2 && p3Enabled.value && s4Count.value >= 3 }
+    private val p3Sections = listOf(
+        p3Section(1, "§aSection 1 (S1)", 4),
+        p3Section(2, "§eSection 2 (S2)", 4),
+        p3Section(3, "§cSection 3 (S3)", 4),
+        p3Section(4, "§bSection 4 (S4)", 3)
+    )
 
     // --- P5 (Boss 3) ---
     private val p5Enabled by ToggleSetting("Enable P5", true).showIf { selectedBoss.value == 3 }
@@ -117,9 +101,6 @@ object LeapMenuFeatures: Feature(
     private val i4Leap by DropdownSetting("I4 Leap", 0, classOptions).showIf { selectedBoss.value == 4 && miscEnabled.value }
     private val pdLeap by DropdownSetting("PD Leap", 0, classOptions).showIf { selectedBoss.value == 4 && miscEnabled.value }
 
-    private val customLeapMenu by lazy { LeapMenu.getSettingByName("Leap Menu") as? ToggleSetting }
-    private val isCustomLeapEnabled get() = LeapMenu.enabled && (customLeapMenu?.value ?: true)
-
     private var consecutiveWrongClicks = 0
 
     fun isCoreHighlightActive(): Boolean {
@@ -128,31 +109,19 @@ object LeapMenuFeatures: Feature(
     }
 
     override fun init() {
-        register<WorldChangeEvent> {
-            consecutiveWrongClicks = 0
-            BossPhaseDetector.reset()
-        }
-
-        register<ChatMessageEvent> { BossPhaseDetector.onChat(event.unformattedText) }
-        register<MainThreadPacketReceivedEvent.Post> { BossPhaseDetector.onPacketPost(event) }
+        register<WorldChangeEvent> { consecutiveWrongClicks = 0 }
 
         register<ScreenEvent.PreRender>(EventPriority.HIGHEST) {
-            if (! isApplicable(event.screen)) return@register
+            if (! isApplicable()) return@register
 
             BossPhaseDetector.recordLeapSection()
             LeapMenu.updateLeapMenu()
             val players = LeapMenu.players
 
-            val coreActive = isCoreHighlightActive()
-            val targetIndices = if (coreActive) emptySet() else getTargetPlayerIndices(players).toSet()
-            if (targetIndices.isEmpty() && ! coreActive) return@register
+            val targetIndices = getTargetPlayerIndices(players).toSet()
+            if (targetIndices.isEmpty()) return@register
 
             event.isCanceled = true
-
-            if (players.all { it == null }) {
-                event.context.drawCenteredString("§4§lNo players found", Resolution.width / 2, Resolution.height / 2)
-                return@register
-            }
 
             LeapMenuRenderer.render(
                 event = event,
@@ -170,7 +139,7 @@ object LeapMenuFeatures: Feature(
         }
 
         register<ContainerEvent.MouseClick>(EventPriority.HIGHEST) {
-            if (! isApplicable(event.screen)) return@register
+            if (! isApplicable()) return@register
             if (! blockWrongClicks.value || event.button != 0) return@register
 
             val targetIndices = getTargetPlayerIndices(LeapMenu.players)
@@ -195,16 +164,9 @@ object LeapMenuFeatures: Feature(
     override fun onDisable() {
         super.onDisable()
         consecutiveWrongClicks = 0
-        BossPhaseDetector.reset()
     }
 
-    private fun isApplicable(screen: Screen): Boolean {
-        if (screen !is AbstractContainerScreen<*>) return false
-        if (! enabled || ! LocationUtils.inBoss || LocationUtils.dungeonFloorNumber != 7) return false
-        if (! isCustomLeapEnabled) return false
-        val title = screen.title.string.lowercase()
-        return title.contains("spirit leap") || title.contains("teleport to player")
-    }
+    private fun isApplicable() = LocationUtils.inBoss && LocationUtils.dungeonFloorNumber == 7 && LeapMenu.isActive()
 
     private fun classFromChoice(choice: Int): Set<DungeonClass> {
         if (choice <= 0) return emptySet()
@@ -217,7 +179,7 @@ object LeapMenuFeatures: Feature(
 
         // 1. Misc Leaps (I4 / PD)
         if (miscEnabled.value) {
-            if (i4Leap.value > 0 && BossPhaseDetector.isGoldorPhase && BossPhaseDetector.isI4Done) {
+            if (i4Leap.value > 0 && BossPhaseDetector.isGoldorPhase && BossPhaseDetector.isI4Done && ! BossPhaseDetector.leapedAfterI4) {
                 return classFromChoice(i4Leap.value)
             }
             if (pdLeap.value > 0 && BossPhaseDetector.isStormPhase && BossPhaseDetector.isInP3Section()) {
@@ -245,13 +207,9 @@ object LeapMenuFeatures: Feature(
             }
             BossPhaseDetector.isGoldorPhase -> {
                 if (! p3Enabled.value) return emptySet()
-                when (BossPhaseDetector.currentSection) {
-                    1 -> resolveMultiTarget(BossPhaseDetector.s1LeapIndex, listOf(s1Leap1, s1Leap2, s1Leap3, s1Leap4), s1Count.value)
-                    2 -> resolveMultiTarget(BossPhaseDetector.s2LeapIndex, listOf(s2Leap1, s2Leap2, s2Leap3, s2Leap4), s2Count.value)
-                    3 -> resolveMultiTarget(BossPhaseDetector.s3LeapIndex, listOf(s3Leap1, s3Leap2, s3Leap3, s3Leap4), s3Count.value)
-                    4 -> resolveMultiTarget(BossPhaseDetector.s4LeapIndex, listOf(s4Leap1, s4Leap2, s4Leap3), s4Count.value)
-                    else -> emptySet()
-                }
+                val idx = BossPhaseDetector.currentSection - 1
+                val section = p3Sections.getOrNull(idx) ?: return emptySet()
+                resolveMultiTarget(BossPhaseDetector.getLeapIndex(idx), section.leaps, section.count.value)
             }
             LocationUtils.F7Phase == 5 -> {
                 if (p5Enabled.value) classFromChoice(relicLeap.value) else emptySet()
@@ -260,17 +218,17 @@ object LeapMenuFeatures: Feature(
         }
     }
 
+    private fun MultiCheckboxSetting.selectedClasses() =
+        value.filterValues { it }.keys.map(DungeonClass::fromName).filterNot { it == DungeonClass.Empty }.toSet()
+
     private fun resolveMultiTarget(
         index: Int,
         steps: List<MultiCheckboxSetting>,
         limit: Int
     ): Set<DungeonClass> {
-        val activeSteps = steps.take(limit).map { setting ->
-            setting.value.filter { it.value }.keys.map { DungeonClass.fromName(it) }.filter { it != DungeonClass.Empty }.toSet()
-        }.filter { it.isNotEmpty() }
-
+        val activeSteps = steps.take(limit)
         if (activeSteps.isEmpty()) return emptySet()
-        return activeSteps.getOrElse(index) { activeSteps.last() }
+        return activeSteps.getOrElse(index) { activeSteps.last() }.selectedClasses()
     }
 
     fun getTargetPlayerIndices(players: Array<LeapMenu.LeapMenuPlayer?> = LeapMenu.players): List<Int> {

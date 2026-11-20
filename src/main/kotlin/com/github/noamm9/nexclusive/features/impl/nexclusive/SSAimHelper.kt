@@ -16,6 +16,7 @@ import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.SimonSaysBridge
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
+import com.github.noamm9.utils.equalsOneOf
 import com.mojang.blaze3d.platform.InputConstants
 import java.awt.Color
 
@@ -78,14 +79,14 @@ object SSAimHelper: Feature(
         register<WorldChangeEvent> { resetAimState() }
 
         register<PlayerInteractEvent.RIGHT_CLICK.BLOCK> {
-            if (! enabled || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice()) return@register
+            if (! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice()) return@register
             val current = SimonSaysBridge.getValidButton() ?: return@register
             if (event.pos == current) onTargetClicked()
         }
 
         register<MouseClickEvent> {
-            if (! enabled || ! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice() || event.action != InputConstants.PRESS) return@register
-            if (event.button == InputConstants.MOUSE_BUTTON_RIGHT || event.button == InputConstants.MOUSE_BUTTON_LEFT) {
+            if (! SimonSays.enabled || ! SimonSaysBridge.isAtSSDevice() || event.action != InputConstants.PRESS) return@register
+            if (event.button.equalsOneOf(InputConstants.MOUSE_BUTTON_RIGHT, InputConstants.MOUSE_BUTTON_LEFT)) {
                 val current = SimonSaysBridge.getValidButton() ?: return@register
                 if (SimonSaysBridge.isLookingAtButton(current)) onTargetClicked()
             }

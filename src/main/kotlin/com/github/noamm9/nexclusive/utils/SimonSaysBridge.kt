@@ -15,7 +15,7 @@ import java.lang.reflect.Field
 import kotlin.math.abs
 
 object SimonSaysBridge {
-    private val deviceCenter = Vec3(110.5, 121.5, 93.5)
+    val deviceCenter = Vec3(110.5, 121.5, 93.5)
     private val buttonCheckPos = BlockPos(110, 120, 93)
 
     private val solutionField by lazy {

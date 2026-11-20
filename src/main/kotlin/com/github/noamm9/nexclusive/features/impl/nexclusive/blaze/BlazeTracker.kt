@@ -7,8 +7,6 @@ import com.github.noamm9.utils.MathUtils
 import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
-import com.github.noamm9.utils.location.LocationUtils
-import com.github.noamm9.utils.location.WorldType
 import net.minecraft.core.BlockPos
 import net.minecraft.world.entity.decoration.ArmorStand
 import net.minecraft.world.entity.monster.Blaze
@@ -44,31 +42,9 @@ object BlazeTracker {
         return held.`is`(Items.BOW) || held.skyblockId.let { it.contains("BOW") || it == "TERMINATOR" }
     }
 
-    fun updateRoomState(): Boolean {
-        val p = mc.player
-        val roomName = ScanUtils.currentRoom?.name
-        if (
-            p == null ||
-            LocationUtils.world != WorldType.Catacombs ||
-            LocationUtils.inBoss ||
-            p.x > - 8.0 ||
-            p.z > - 8.0 ||
-            roomName == null ||
-            ! roomName.contains("Blaze", ignoreCase = true)
-        ) {
-            if (inBlazeRoom) reset()
-            return false
-        }
-
+    fun enterRoom(roomName: String) {
         reversed = roomName.equals("Lower Blaze", ignoreCase = true)
-        val spot = getOptimalSpot()
-        if (spot != null && (kotlin.math.abs(p.x - spot.x) > 25.0 || kotlin.math.abs(p.z - spot.z) > 25.0)) {
-            if (inBlazeRoom) reset()
-            return false
-        }
-
         inBlazeRoom = true
-        return true
     }
 
     fun scanBlazes(hitboxOffset: Double) {

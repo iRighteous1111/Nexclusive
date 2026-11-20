@@ -1,6 +1,7 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.blaze
 
 import com.github.noamm9.config.types.*
+import com.github.noamm9.event.EventBus
 import com.github.noamm9.event.impl.*
 import com.github.noamm9.event.priority.EventPriority
 import com.github.noamm9.features.Feature
@@ -13,8 +14,11 @@ import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ColorUtils
 import com.github.noamm9.utils.ColorUtils.withAlpha
+import com.github.noamm9.utils.MathUtils.add
 import com.github.noamm9.utils.PlayerUtils
+import com.github.noamm9.utils.dungeons.map.utils.ScanUtils
 import com.github.noamm9.utils.location.LocationUtils
+import com.github.noamm9.utils.location.WorldType
 import com.github.noamm9.utils.render.RenderHelper.renderVec
 import com.github.noamm9.utils.render.world.Render3D.renderBlock
 import com.github.noamm9.utils.render.world.Render3D.renderTracer
@@ -48,18 +52,24 @@ object BlazeUtils: Feature(
     private val blockWrongClicks by ToggleSetting("Block Wrong Clicks", false).withDescription("Prevents shooting if aiming at a wrong blaze or if the arrow would hit another blaze behind it.")
     private val overrideClicks by SliderSetting("Override Clicks", 2, 1, 10, 1).withDescription("Consecutive clicks required to override and shoot anyway.").showIf { blockWrongClicks.value }
 
-    private val blazeAimedTimes = HashMap<Int, Long>()
-    private var currentAimingBlazeId: Int? = null
-    private var aimLockStartTime = 0L
-    private var lastFrameTime = 0L
+    private val aimLock = AimUtils.AimLock<Int>()
 
     private var triggerbotHoverTicks = 0
     private var lastHoveredBlazeId: Int? = null
     private var isTriggerbotClicking = false
     private var consecutiveWrongClicks = 0
 
+    private val tickListener = EventBus.listener<TickEvent.Start> {
+        if (! enabled || LocationUtils.inBoss) return@listener resetAll()
+        BlazeTracker.currentTick ++
+        BlazeTracker.scanBlazes(hitboxOffset.value)
+        tickTriggerbot()
+    }
+
     override fun init() {
         register<WorldChangeEvent> { resetAll() }
+        register<DungeonEvent.BossEnterEvent> { resetAll() }
+        register<DungeonEvent.RoomEvent.onEnter> { tryEnterRoom(event.room.name) }
         register<DungeonEvent.RoomEvent.onExit> { if (event.room.name.contains("Blaze", ignoreCase = true)) resetAll() }
 
         register<PlayerInteractEvent.RIGHT_CLICK.AIR>(EventPriority.HIGHEST) { onInteract(event, false) }
@@ -68,13 +78,6 @@ object BlazeUtils: Feature(
         register<PlayerInteractEvent.LEFT_CLICK.AIR>(EventPriority.HIGHEST) { onInteract(event, true) }
         register<PlayerInteractEvent.LEFT_CLICK.ENTITY>(EventPriority.HIGHEST) { onInteract(event, true) }
         register<PlayerInteractEvent.LEFT_CLICK.BLOCK>(EventPriority.HIGHEST) { onInteract(event, true) }
-
-        register<TickEvent.Start> {
-            BlazeTracker.currentTick ++
-            if (! BlazeTracker.updateRoomState()) return@register
-            BlazeTracker.scanBlazes(hitboxOffset.value)
-            tickTriggerbot()
-        }
 
         register<RenderOverlayEvent> {
             if (! aimHelper.value || ! drawCircle.value || mc.gui.screen() != null) return@register
@@ -89,9 +92,24 @@ object BlazeUtils: Feature(
         }
     }
 
+    override fun onEnable() {
+        super.onEnable()
+        tryEnterRoom(ScanUtils.currentRoom?.name)
+    }
+
     override fun onDisable() {
         super.onDisable()
         resetAll()
+    }
+
+    private fun tryEnterRoom(roomName: String?) {
+        if (BlazeTracker.inBlazeRoom) return
+        val p = mc.player ?: return
+        if (LocationUtils.world != WorldType.Catacombs || LocationUtils.inBoss || p.x > - 8.0 || p.z > - 8.0) return
+        if (roomName == null || ! roomName.contains("Blaze", ignoreCase = true)) return
+
+        BlazeTracker.enterRoom(roomName)
+        tickListener.register()
     }
 
     private fun onInteract(event: PlayerInteractEvent, isLeftClick: Boolean) {
@@ -117,7 +135,7 @@ object BlazeUtils: Feature(
         if (System.currentTimeMillis() - BlazeTracker.lastShotTime < 100L) return
 
         val target = BlazeTracker.targetBlaze ?: return
-        val screenPos = ProjectionUtils.worldToScreen(target.position().add(0.0, target.bbHeight / 2.0, 0.0))
+        val screenPos = ProjectionUtils.worldToScreen(target.position().add(y = target.bbHeight / 2.0))
         val isNearScreen = aimHelper.value && CircleRenderer.isInsideCircle(screenPos, helperRadius.value)
 
         if (shot.hitsTarget || isNearScreen) markShot(target)
@@ -170,53 +188,28 @@ object BlazeUtils: Feature(
     }
 
     private fun renderAimHelper() {
-        if (! aimHelper.value || mc.gui.screen() != null || ! BlazeTracker.isHoldingBow()) return resetAimState()
-        val target = BlazeTracker.targetBlaze?.takeIf { it.isAlive && ! it.isRemoved && BlazeTracker.targetHasLineOfSight } ?: return resetAimState()
+        if (! aimHelper.value || mc.gui.screen() != null || ! BlazeTracker.isHoldingBow()) return aimLock.resetLock()
+        val target = BlazeTracker.targetBlaze?.takeIf { it.isAlive && ! it.isRemoved && BlazeTracker.targetHasLineOfSight } ?: return aimLock.resetLock()
 
-        val eyePos = player.renderVec.add(0.0, player.eyeHeight.toDouble(), 0.0)
-        if (BlazeTracker.isLookingAtBlaze(target, eyePos)) {
-            aimLockStartTime = 0L
-            lastFrameTime = 0L
-            return
-        }
+        val eyePos = player.renderVec.add(y = player.eyeHeight)
+        if (BlazeTracker.isLookingAtBlaze(target, eyePos)) return aimLock.clearTiming()
 
         val targetPos = BlazeTracker.getTargetPos(target, hitboxOffset.value)
         val screenPos = ProjectionUtils.worldToScreen(targetPos)
-        if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) return resetAimState()
+        if (! CircleRenderer.isInsideCircle(screenPos, helperRadius.value)) return aimLock.resetLock()
 
-        val now = System.currentTimeMillis()
-        val cooldownMs = (aimCooldown.value * 1000.0).toLong()
-        val aimDurationMs = (aimDuration.value * 1000.0).toLong()
-
-        if (cooldownMs > 0L && now - (blazeAimedTimes[target.id] ?: 0L) < cooldownMs) return
-
-        if (target.id != currentAimingBlazeId) {
-            currentAimingBlazeId = target.id
-            aimLockStartTime = 0L
-            lastFrameTime = 0L
-        }
-
-        if (aimLockStartTime > 0L) {
-            if (now - aimLockStartTime < aimDurationMs) return AimUtils.rotateTo(targetPos)
-            blazeAimedTimes[target.id] = now
-            return resetAimState()
-        }
-
-        val dt = if (lastFrameTime == 0L) 0.016 else ((now - lastFrameTime) / 1000.0).coerceIn(0.001, 0.05)
-        lastFrameTime = now
-
-        if (AimUtils.rotateTowards(targetPos, rotationSpeed.value, dt)) {
-            aimLockStartTime = now
-            if (aimDurationMs <= 0L) {
-                blazeAimedTimes[target.id] = now
-                resetAimState()
-            }
-        }
+        aimLock.update(
+            key = target.id,
+            targetPos = targetPos,
+            speed = rotationSpeed.value,
+            durationMs = (aimDuration.value * 1000.0).toLong(),
+            cooldownMs = (aimCooldown.value * 1000.0).toLong()
+        )
     }
 
     private fun markShot(target: net.minecraft.world.entity.monster.Blaze) {
         BlazeTracker.recordShot(target, hitboxOffset.value)
-        resetAimState()
+        aimLock.resetLock()
         resetTriggerbot()
     }
 
@@ -225,16 +218,10 @@ object BlazeUtils: Feature(
         lastHoveredBlazeId = null
     }
 
-    private fun resetAimState() {
-        currentAimingBlazeId = null
-        aimLockStartTime = 0L
-        lastFrameTime = 0L
-    }
-
     private fun resetAll() {
-        resetAimState()
+        tickListener.unregister()
+        aimLock.resetAll()
         resetTriggerbot()
-        blazeAimedTimes.clear()
         BlazeTracker.reset()
         isTriggerbotClicking = false
         consecutiveWrongClicks = 0

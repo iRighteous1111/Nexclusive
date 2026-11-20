@@ -6,6 +6,7 @@ import com.github.noamm9.utils.ChatUtils.addColor
 import com.github.noamm9.utils.JsonUtils
 import com.github.noamm9.utils.ThreadUtils
 import com.github.noamm9.utils.items.ItemRarity
+import com.github.noamm9.utils.uppercaseFirst
 import kotlinx.serialization.json.*
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
@@ -130,16 +131,16 @@ object ItemValueData {
         val id = itemId.replace(':', '-')
         itemNames[id]?.let { return it }
         if (id.startsWith("ESSENCE_")) {
-            val type = id.removePrefix("ESSENCE_").lowercase().replaceFirstChar { it.uppercase() }
+            val type = id.removePrefix("ESSENCE_").lowercase().uppercaseFirst()
             return "§d$type Essence"
         }
-        return "§f" + id.lowercase().split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+        return "§f" + id.lowercase().split('_').joinToString(" ") { it.uppercaseFirst() }
     }
 
     fun getEnchantName(rawKey: String, level: Int): String {
         val cleanKey = rawKey.lowercase()
         val info = enchantNames[cleanKey] ?: enchantNames[cleanKey.removePrefix("ultimate_")]
-        val display = info?.first ?: cleanKey.removePrefix("ultimate_").split('_').joinToString(" ") { it.replaceFirstChar(Char::uppercase) }
+        val display = info?.first ?: cleanKey.removePrefix("ultimate_").split('_').joinToString(" ") { it.uppercaseFirst() }
         val isUlt = info?.second == true || cleanKey.startsWith("ultimate_")
         return "${if (isUlt) "§d§l" else "§9"}$display $level"
     }

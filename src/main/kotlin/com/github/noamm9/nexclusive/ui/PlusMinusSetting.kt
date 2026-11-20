@@ -1,6 +1,7 @@
 package com.github.noamm9.nexclusive.ui
 
 import com.github.noamm9.config.ConfigHolder
+import com.github.noamm9.config.Savable
 import com.github.noamm9.ui.clickgui.TooltipManager
 import com.github.noamm9.ui.clickgui.components.settings.Style
 import com.github.noamm9.ui.clickgui.components.settings.Widget
@@ -9,19 +10,24 @@ import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawCenteredString
 import com.github.noamm9.utils.render.Render2D.drawRect
+import com.google.gson.JsonElement
+import com.google.gson.JsonPrimitive
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import java.awt.Color
 
 class PlusMinusSetting(
     name: String,
-    val countSupplier: () -> Int,
+    defaultValue: Int = 1,
     val minCount: Int = 1,
-    val maxCount: Int = 4,
-    val onAdd: () -> Unit,
-    val onRemove: () -> Unit
-) : ConfigHolder<Unit>(name, Unit)
+    val maxCount: Int = 4
+): ConfigHolder<Int>(name, defaultValue), Savable {
+    override fun write() = JsonPrimitive(value)
+    override fun read(element: JsonElement) {
+        value = element.asDouble.toInt().coerceIn(minCount, maxCount)
+    }
+}
 
-class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
+class PlusMinusWidget(val setting: PlusMinusSetting): Widget<Int>(setting) {
     override val height: Int get() = 45
 
     private val headerHeight = 22
@@ -35,7 +41,7 @@ class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
         ctx.drawRect(x, y, width, headerHeight, Color(255, 255, 255, 10))
         ctx.drawCenteredString("§l${setting.name}", x + width / 2, y + 7, Style.accentColor)
 
-        val count = setting.countSupplier()
+        val count = setting.value
         val canAdd = count < setting.maxCount
         val canRemove = count > setting.minCount
 
@@ -95,7 +101,7 @@ class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
 
     override fun mouseClicked(mouseX: Double, mouseY: Double, button: Int): Boolean {
         if (button != 0) return false
-        val count = setting.countSupplier()
+        val count = setting.value
         val canAdd = count < setting.maxCount
         val canRemove = count > setting.minCount
 
@@ -104,7 +110,7 @@ class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
 
         if (canAdd && mouseX >= plusX && mouseX <= plusX + btnSize && mouseY >= plusY && mouseY <= plusY + btnSize) {
             Style.playClickSound(1f)
-            setting.onAdd()
+            setting.value = (setting.value + 1).coerceAtMost(setting.maxCount)
             return true
         }
 
@@ -113,7 +119,7 @@ class PlusMinusWidget(val setting: PlusMinusSetting) : Widget<Unit>(setting) {
             val minusY = plusY
             if (mouseX >= minusX && mouseX <= minusX + btnSize && mouseY >= minusY && mouseY <= minusY + btnSize) {
                 Style.playClickSound(1f)
-                setting.onRemove()
+                setting.value = (setting.value - 1).coerceAtLeast(setting.minCount)
                 return true
             }
         }

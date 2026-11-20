@@ -12,7 +12,6 @@ import com.github.noamm9.nexclusive.utils.AimUtils
 import com.github.noamm9.nexclusive.utils.ProjectionUtils
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer
 import com.github.noamm9.nexclusive.utils.render.CircleRenderer.drawAimCircle
-import com.github.noamm9.utils.PlayerUtils
 import com.github.noamm9.utils.WorldUtils
 import com.github.noamm9.utils.location.LocationUtils
 import net.minecraft.core.BlockPos
@@ -42,10 +41,7 @@ object LeverHelper: Feature(
     private val aimCooldown by SliderSetting("Aim Cooldown", 1.0, 0.0, 5.0, 0.1, "s").withDescription("Time before re-aiming at the same lever. Set to 0 to continuously aim as long as it's in the circle.")
 
     private val cachedLevers = CopyOnWriteArrayList<Pair<BlockPos, Vec3>>()
-    private val leverAimedTimes = HashMap<BlockPos, Long>()
-    private var currentAimingLever: BlockPos? = null
-    private var aimLockStartTime = 0L
-    private var lastFrameTime = 0L
+    private val aimLock = AimUtils.AimLock<BlockPos>()
 
     private fun isClearRay(eyePos: Vec3, pt: Vec3, pos: BlockPos): Boolean {
         val hit = level.clip(ClipContext(eyePos, pt, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player))
@@ -168,19 +164,18 @@ object LeverHelper: Feature(
         register<RenderWorldEvent> {
             if (mc.gui.screen() != null) return@register
             if (onlyInBoss.value && ! LocationUtils.inBoss) return@register
-            if (cachedLevers.isEmpty()) return@register resetLockState()
+            if (cachedLevers.isEmpty()) return@register aimLock.resetLock()
 
             val maxRadius = helperRadius.value.toDouble()
             val now = System.currentTimeMillis()
             val cooldownMs = (aimCooldown.value * 1000.0).toLong()
-            val aimDurationMs = (aimDuration.value * 1000.0).toLong()
 
             var bestPos: BlockPos? = null
             var bestTarget: Vec3? = null
             var bestDist = Double.MAX_VALUE
 
             for ((pos, target) in cachedLevers) {
-                if (cooldownMs > 0L && now - (leverAimedTimes[pos] ?: 0L) < cooldownMs) continue
+                if (aimLock.isOnCooldown(pos, cooldownMs, now)) continue
                 val screenPos = ProjectionUtils.worldToScreen(target) ?: continue
                 val dist = CircleRenderer.distanceToCenter(screenPos)
                 if (dist <= maxRadius && dist < bestDist) {
@@ -190,34 +185,15 @@ object LeverHelper: Feature(
                 }
             }
 
-            if (bestPos == null || bestTarget == null) return@register resetLockState()
+            if (bestPos == null || bestTarget == null) return@register aimLock.resetLock()
 
-            if (bestPos != currentAimingLever) {
-                currentAimingLever = bestPos
-                aimLockStartTime = 0L
-                lastFrameTime = 0L
-            }
-
-            if (aimLockStartTime > 0L) {
-                if (now - aimLockStartTime < aimDurationMs) {
-                    AimUtils.rotateTo(bestTarget)
-                    return@register
-                }
-                leverAimedTimes[bestPos] = now
-                resetLockState()
-                return@register
-            }
-
-            val dt = if (lastFrameTime == 0L) 0.016 else ((now - lastFrameTime) / 1000.0).coerceIn(0.001, 0.05)
-            lastFrameTime = now
-
-            if (AimUtils.rotateTowards(bestTarget, rotationSpeed.value, dt)) {
-                aimLockStartTime = now
-                if (aimDurationMs <= 0L) {
-                    leverAimedTimes[bestPos] = now
-                    resetLockState()
-                }
-            }
+            aimLock.update(
+                key = bestPos,
+                targetPos = bestTarget,
+                speed = rotationSpeed.value,
+                durationMs = (aimDuration.value * 1000.0).toLong(),
+                cooldownMs = cooldownMs
+            )
         }
     }
 
@@ -226,15 +202,8 @@ object LeverHelper: Feature(
         resetAll()
     }
 
-    private fun resetLockState() {
-        currentAimingLever = null
-        aimLockStartTime = 0L
-        lastFrameTime = 0L
-    }
-
     private fun resetAll() {
         cachedLevers.clear()
-        leverAimedTimes.clear()
-        resetLockState()
+        aimLock.resetAll()
     }
 }
