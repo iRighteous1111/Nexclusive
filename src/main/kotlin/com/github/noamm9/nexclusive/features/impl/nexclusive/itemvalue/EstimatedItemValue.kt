@@ -12,7 +12,8 @@ import com.github.noamm9.ui.hud.HudElement
 import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.NumbersUtils
-import com.github.noamm9.utils.location.LocationUtils.inSkyblock
+import com.github.noamm9.utils.location.LocationUtils
+import com.github.noamm9.utils.location.WorldType
 import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawRect
 import com.github.noamm9.utils.render.Render2D.drawString
@@ -27,6 +28,8 @@ import java.util.IdentityHashMap
 object EstimatedItemValue: Feature("Displays an estimated value breakdown of SkyBlock items.", "Estimated Item Value") {
     val priceSource by DropdownSetting("Price Source", 0, listOf("Instant Buy / LBIN", "Buy Order / LBIN", "NPC Sell")).section("General")
     val onlyInAh by ToggleSetting("Only in AH").withDescription("Only displays the estimated value when inside Auction House menus.")
+    val disableInDungeons by ToggleSetting("Disable in Dungeons").withDescription("Hides the estimated value while inside Dungeons.")
+    val disableInKuudra by ToggleSetting("Disable in Kuudra").withDescription("Hides the estimated value while inside Kuudra.")
     val exactPrice by ToggleSetting("Exact Price").withDescription("Shows exact coin amounts instead of compact numbers.")
     val showTooltip by ToggleSetting("Show in Tooltip").withDescription("Appends the total estimated value to the item's lore tooltip.")
     val enchantmentsCap by SliderSetting("Enchantments Cap", 7, 1, 30, 1).withDescription("Maximum number of individual enchantments shown.")
@@ -88,8 +91,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         }
 
         register<ContainerEvent.Render.Tooltip> {
-            if (! inSkyblock) return@register
-            if (onlyInAh.value && ! isAuctionScreen(event.screen)) return@register
+            if (! shouldDisplay(event.screen)) return@register
             val stack = event.stack
             if (stack.isEmpty) return@register
 
@@ -123,9 +125,8 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         }
 
         register<ScreenEvent.PostRender> {
-            if (! inSkyblock) return@register
             val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return@register
-            if (onlyInAh.value && ! isAuctionScreen(screen)) return@register
+            if (! shouldDisplay(screen)) return@register
             if (lastValue == null || System.currentTimeMillis() - lastRenderTime > 100L) return@register
 
             Resolution.push(event.context)
@@ -155,6 +156,14 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         lastRenderTime = 0L
     }
 
+    private fun shouldDisplay(screen: Screen?): Boolean {
+        if (! LocationUtils.inSkyblock) return false
+        if (disableInDungeons.value && LocationUtils.world == WorldType.Catacombs) return false
+        if (disableInKuudra.value && LocationUtils.world == WorldType.Kuudra) return false
+        if (onlyInAh.value && ! isAuctionScreen(screen)) return false
+        return true
+    }
+
     private fun isAuctionScreen(screen: Screen?): Boolean {
         if (screen !is ContainerScreen) return false
         val title = screen.title.unformattedText
@@ -169,6 +178,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         h = 31 * h + if (ignoreHelmetSkins.value) 1 else 0
         h = 31 * h + if (ignoreArmorDyes.value) 1 else 0
         h = 31 * h + if (ignoreRunes.value) 1 else 0
+        h = 31 * h + ItemValueData.dataVersion.get()
         return h
     }
 }

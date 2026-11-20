@@ -10,12 +10,17 @@ import kotlinx.serialization.json.*
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.HttpsURLConnection
 
 object ItemValueData {
     private const val ITEMS_URL = "https://api.hypixel.net/v2/resources/skyblock/items"
     private const val REFORGE_URL = "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/constants/reforgestones.json"
+    private const val COFL_BIN_URL = "https://sky.coflnet.com/api/item/price/"
+    private const val DUNGEON_CACHE_TTL_MS = 10 * 60 * 1000L
+    private const val DUNGEON_ERROR_RETRY_MS = 60 * 1000L
 
+    private class CachedPrice(val price: Long, val expiresAt: Long)
     class CostEntry(val type: String, val itemId: String, val amount: Long)
     class ReforgeStone(val name: String, val stoneId: String, val costs: Map<ItemRarity, Long>)
 
@@ -25,8 +30,11 @@ object ItemValueData {
     val gemstoneSlotCosts = ConcurrentHashMap<String, Map<String, List<CostEntry>>>()
     val reforgeStones = ConcurrentHashMap<String, ReforgeStone>()
     val enchantNames = ConcurrentHashMap<String, Pair<String, Boolean>>()
+    private val dungeonPrices = ConcurrentHashMap<String, CachedPrice>()
+    private val dungeonFetching = ConcurrentHashMap.newKeySet<String>()
 
     private val loading = AtomicBoolean(false)
+    val dataVersion = AtomicInteger(0)
     @Volatile var loaded = false
         private set
 
@@ -78,7 +86,7 @@ object ItemValueData {
             loadHypixelItems()
             loadReforgeStones()
             loaded = true
-            EstimatedItemValue.clearCache()
+            dataVersion.incrementAndGet()
         }
     }
 
@@ -90,6 +98,32 @@ object ItemValueData {
             1 -> NetworkLoop.getBazaarPrice(id)?.buy?.takeIf { it > 0 } ?: NetworkLoop.getLowestBin(id) ?: NetworkLoop.getNpcSellPrice(id) ?: 0L
             else -> NetworkLoop.getNpcSellPrice(id) ?: 0L
         }
+    }
+
+    fun getDungeonItemPrice(itemId: String, itemTier: Int, isMaxQuality: Boolean): Long? {
+        val id = itemId.replace(':', '-')
+        if (id.isEmpty() || ! id.all { it.isLetterOrDigit() || it == '_' || it == '-' }) return null
+
+        val boost = if (isMaxQuality) "50" else "0-49"
+        val key = "$id:$itemTier:$boost"
+        val cached = dungeonPrices[key]
+
+        if ((cached == null || System.currentTimeMillis() >= cached.expiresAt) && dungeonFetching.add(key)) {
+            ThreadUtils.async {
+                try {
+                    val data = fetchJson("$COFL_BIN_URL$id/bin?ItemTier=$itemTier&BaseStatBoost=$boost", 5_000)
+                    val lowest = data["lowest"]?.jsonPrimitive?.longOrNull?.coerceAtLeast(0L) ?: 0L
+                    dungeonPrices[key] = CachedPrice(lowest, System.currentTimeMillis() + DUNGEON_CACHE_TTL_MS)
+                    if (lowest != cached?.price) dataVersion.incrementAndGet()
+                } catch (_: Throwable) {
+                    dungeonPrices[key] = CachedPrice(cached?.price ?: 0L, System.currentTimeMillis() + DUNGEON_ERROR_RETRY_MS)
+                } finally {
+                    dungeonFetching.remove(key)
+                }
+            }
+        }
+
+        return cached?.price?.takeIf { it > 0L }
     }
 
     fun getItemName(itemId: String): String {
@@ -135,10 +169,10 @@ object ItemValueData {
         }
     }
 
-    private fun fetchJson(url: String): JsonObject {
+    private fun fetchJson(url: String, timeoutMs: Int = 15_000): JsonObject {
         val conn = URI.create(url).toURL().openConnection() as HttpsURLConnection
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 15_000
+        conn.connectTimeout = timeoutMs
+        conn.readTimeout = timeoutMs
         conn.setRequestProperty("User-Agent", "Nexclusive")
         val text = conn.inputStream.bufferedReader().use { it.readText() }
         return JsonUtils.json.decodeFromString(text)

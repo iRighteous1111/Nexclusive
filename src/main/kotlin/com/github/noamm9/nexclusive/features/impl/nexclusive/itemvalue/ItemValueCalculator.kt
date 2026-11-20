@@ -61,7 +61,7 @@ object ItemValueCalculator {
         val list = ArrayList<String>(16)
         list.add("§eEstimated Item Value:")
 
-        val basePrice = addBaseItem(stack, sbId, list)
+        val basePrice = addBaseItem(stack, sbId, data, list)
         var totalPrice = basePrice
 
         totalPrice += addCoinsConsumed(stack, sbId, data, list)
@@ -133,10 +133,14 @@ object ItemValueCalculator {
         return CalculatedValue(totalPrice, basePrice, list, maxWidth + 12f, list.size * 10f + 8f)
     }
 
-    private fun addBaseItem(stack: ItemStack, sbId: String, list: MutableList<String>): Long {
+    private fun addBaseItem(stack: ItemStack, sbId: String, data: CompoundTag, list: MutableList<String>): Long {
         if (sbId.startsWith("ENCHANTMENT_") || sbId.startsWith("ENCHANTED_BOOK")) return 0L
         val baseId = ItemValueBreakdown.getCrimsonBaseId(sbId) ?: sbId
-        val price = ItemValueData.getPrice(baseId).coerceAtLeast(0L)
+        val tier = data.getIntOr("item_tier", - 1)
+        val dungeonPrice = if (tier >= 0 && EstimatedItemValue.priceSource.value != 2) {
+            ItemValueData.getDungeonItemPrice(baseId, tier, data.getIntOr("baseStatBoostPercentage", 0) >= 50)
+        } else null
+        val price = (dungeonPrice ?: ItemValueData.getPrice(baseId)).coerceAtLeast(0L)
         val name = if (baseId != sbId) ItemValueData.getItemName(baseId) else stack.hoverName.formattedText
         if (price > 0L) list.add("§7Base item: $name §7(§6${formatPrice(price)}§7)")
         else list.add("§7Base item: $name §8(Not on AH/BZ)")
