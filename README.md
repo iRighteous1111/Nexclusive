@@ -1,1 +1,8 @@
-SS aim helper lever helper chat features
+- auto clicker
+- blaze utils
+- disable titles
+- estimated item value
+- lag announce
+- leap menu features
+- lever helper
+- ss aim helper
