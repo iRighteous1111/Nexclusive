@@ -6,20 +6,26 @@ import com.github.noamm9.utils.ChatUtils.addColor
 import com.github.noamm9.utils.JsonUtils
 import com.github.noamm9.utils.ThreadUtils
 import com.github.noamm9.utils.items.ItemRarity
+import com.github.noamm9.utils.items.ItemUtils.customData
+import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.uppercaseFirst
 import kotlinx.serialization.json.*
+import net.minecraft.world.item.ItemStack
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.HttpsURLConnection
+import kotlin.jvm.optionals.getOrNull
 
 object ItemValueData {
     private const val ITEMS_URL = "https://api.hypixel.net/v2/resources/skyblock/items"
     private const val REFORGE_URL = "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/constants/reforgestones.json"
-    private const val COFL_BIN_URL = "https://sky.coflnet.com/api/item/price/"
-    private const val DUNGEON_CACHE_TTL_MS = 10 * 60 * 1000L
-    private const val DUNGEON_ERROR_RETRY_MS = 60 * 1000L
+    private const val COFL_PRICE_URL = "https://sky.coflnet.com/api/item/price/"
+    private const val COFL_CACHE_TTL_MS = 10 * 60 * 1000L
+    private const val COFL_ERROR_RETRY_MS = 60 * 1000L
 
     private class CachedPrice(val price: Long, val expiresAt: Long)
     class CostEntry(val type: String, val itemId: String, val amount: Long)
@@ -31,10 +37,11 @@ object ItemValueData {
     val gemstoneSlotCosts = ConcurrentHashMap<String, Map<String, List<CostEntry>>>()
     val reforgeStones = ConcurrentHashMap<String, ReforgeStone>()
     val enchantNames = ConcurrentHashMap<String, Pair<String, Boolean>>()
-    private val dungeonPrices = ConcurrentHashMap<String, CachedPrice>()
-    private val dungeonFetching = ConcurrentHashMap.newKeySet<String>()
+    private val coflPrices = ConcurrentHashMap<String, CachedPrice>()
+    private val coflFetching = ConcurrentHashMap.newKeySet<String>()
 
     private val loading = AtomicBoolean(false)
+    private val loadLatch = CountDownLatch(1)
     val dataVersion = AtomicInteger(0)
     @Volatile var loaded = false
         private set
@@ -83,17 +90,48 @@ object ItemValueData {
     fun ensureLoaded() {
         if (loaded || ! loading.compareAndSet(false, true)) return
         ThreadUtils.async {
-            loadLocalEnchants()
-            loadHypixelItems()
-            loadReforgeStones()
-            loaded = true
-            dataVersion.incrementAndGet()
+            try {
+                loadLocalEnchants()
+                loadHypixelItems()
+                loadReforgeStones()
+                loaded = true
+                dataVersion.incrementAndGet()
+            } finally {
+                loadLatch.countDown()
+            }
+        }
+    }
+
+    fun preloadSync(stack: ItemStack) {
+        ensureLoaded()
+        runCatching { loadLatch.await(10, TimeUnit.SECONDS) }
+
+        val sbId = stack.skyblockId.ifEmpty { return }
+        val data = stack.customData
+        val priceSource = EstimatedItemValue.priceSource.value
+        if (priceSource == 2) return
+
+        val baseId = ItemValueBreakdown.getCrimsonBaseId(sbId) ?: sbId
+        val tier = data.getIntOr("item_tier", - 1)
+        if (tier >= 0) getDungeonItemPrice(baseId, tier, data.getIntOr("baseStatBoostPercentage", 0) >= 50, sync = true)
+
+        data.getCompound("runes").getOrNull()?.let { runes ->
+            val key = runes.keySet().firstOrNull() ?: return@let
+            val lvl = runes.getIntOr(key, 0)
+            if (lvl > 0) getRunePrice(key, lvl, priceSource, sync = true)
         }
     }
 
     fun getPrice(itemId: String, priceSource: Int = EstimatedItemValue.priceSource.value): Long {
         val id = itemId.replace(':', '-')
         if (id == "SKYBLOCK_COIN") return 1L
+        if (id.startsWith("RUNE-") && priceSource != 2) {
+            val parts = id.split('-')
+            val lvl = parts.lastOrNull()?.toIntOrNull()
+            if (parts.size >= 3 && lvl != null) {
+                return getRunePrice(parts.subList(1, parts.lastIndex).joinToString("-"), lvl, priceSource)
+            }
+        }
         return when (priceSource) {
             0 -> NetworkLoop.getBazaarPrice(id)?.sell?.takeIf { it > 0 } ?: NetworkLoop.getLowestBin(id) ?: NetworkLoop.getNpcSellPrice(id) ?: 0L
             1 -> NetworkLoop.getBazaarPrice(id)?.buy?.takeIf { it > 0 } ?: NetworkLoop.getLowestBin(id) ?: NetworkLoop.getNpcSellPrice(id) ?: 0L
@@ -101,30 +139,66 @@ object ItemValueData {
         }
     }
 
-    fun getDungeonItemPrice(itemId: String, itemTier: Int, isMaxQuality: Boolean): Long? {
+    fun getRunePrice(runeKey: String, level: Int, priceSource: Int = EstimatedItemValue.priceSource.value, sync: Boolean = false): Long {
+        if (level <= 0) return 0L
+        if (priceSource == 2) return NetworkLoop.getNpcSellPrice("RUNE") ?: 0L
+
+        val upper = runeKey.uppercase()
+        NetworkLoop.getLowestBin("RUNE-$upper-$level")?.takeIf { it > 0L }?.let { return it }
+        NetworkLoop.getLowestBin("RUNE-${upper}_2-$level")?.takeIf { it > 0L }?.let { return it }
+
+        if (upper.isEmpty() || ! upper.all { it.isLetterOrDigit() || it == '_' }) return 0L
+        return getCoflPrice("rune:$upper:$level", sync) { fetchCoflRunePrice(upper) } ?: 0L
+    }
+
+    fun getDungeonItemPrice(itemId: String, itemTier: Int, isMaxQuality: Boolean, sync: Boolean = false): Long? {
         val id = itemId.replace(':', '-')
         if (id.isEmpty() || ! id.all { it.isLetterOrDigit() || it == '_' || it == '-' }) return null
 
         val boost = if (isMaxQuality) "50" else "0-49"
-        val key = "$id:$itemTier:$boost"
-        val cached = dungeonPrices[key]
+        return getCoflPrice("dungeon:$id:$itemTier:$boost", sync) {
+            val data = fetchJson("$COFL_PRICE_URL$id/bin?ItemTier=$itemTier&BaseStatBoost=$boost", 5_000)
+            data["lowest"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L
+        }
+    }
 
-        if ((cached == null || System.currentTimeMillis() >= cached.expiresAt) && dungeonFetching.add(key)) {
+    private fun getCoflPrice(key: String, sync: Boolean, fetcher: () -> Long): Long? {
+        val cached = coflPrices[key]
+        if (cached != null && System.currentTimeMillis() < cached.expiresAt) return cached.price.takeIf { it > 0L }
+
+        if (sync) {
+            val price = runCatching(fetcher).getOrDefault(0L).coerceAtLeast(0L)
+            coflPrices[key] = CachedPrice(price, System.currentTimeMillis() + if (price > 0L) COFL_CACHE_TTL_MS else COFL_ERROR_RETRY_MS)
+            if (price != cached?.price) dataVersion.incrementAndGet()
+            return price.takeIf { it > 0L }
+        }
+
+        if (coflFetching.add(key)) {
             ThreadUtils.async {
                 try {
-                    val data = fetchJson("$COFL_BIN_URL$id/bin?ItemTier=$itemTier&BaseStatBoost=$boost", 5_000)
-                    val lowest = data["lowest"]?.jsonPrimitive?.longOrNull?.coerceAtLeast(0L) ?: 0L
-                    dungeonPrices[key] = CachedPrice(lowest, System.currentTimeMillis() + DUNGEON_CACHE_TTL_MS)
-                    if (lowest != cached?.price) dataVersion.incrementAndGet()
+                    val price = fetcher().coerceAtLeast(0L)
+                    coflPrices[key] = CachedPrice(price, System.currentTimeMillis() + if (price > 0L) COFL_CACHE_TTL_MS else COFL_ERROR_RETRY_MS)
+                    if (price != cached?.price) dataVersion.incrementAndGet()
                 } catch (_: Throwable) {
-                    dungeonPrices[key] = CachedPrice(cached?.price ?: 0L, System.currentTimeMillis() + DUNGEON_ERROR_RETRY_MS)
+                    coflPrices[key] = CachedPrice(cached?.price ?: 0L, System.currentTimeMillis() + COFL_ERROR_RETRY_MS)
                 } finally {
-                    dungeonFetching.remove(key)
+                    coflFetching.remove(key)
                 }
             }
         }
 
         return cached?.price?.takeIf { it > 0L }
+    }
+
+    private fun fetchCoflRunePrice(upper: String): Long {
+        val unique = runCatching {
+            fetchJson("${COFL_PRICE_URL}UNIQUE_RUNE_$upper/current", 5_000)["buy"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L
+        }.getOrDefault(0L)
+        if (unique > 0L) return unique
+
+        return runCatching {
+            fetchJson("${COFL_PRICE_URL}RUNE_$upper/current", 5_000)["buy"]?.jsonPrimitive?.doubleOrNull?.toLong() ?: 0L
+        }.getOrDefault(0L)
     }
 
     fun getItemName(itemId: String): String {

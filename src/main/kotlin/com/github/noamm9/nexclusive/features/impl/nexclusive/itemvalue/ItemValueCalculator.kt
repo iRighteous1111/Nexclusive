@@ -2,6 +2,7 @@ package com.github.noamm9.nexclusive.features.impl.nexclusive.itemvalue
 
 import com.github.noamm9.utils.ChatUtils.formattedText
 import com.github.noamm9.utils.ChatUtils.removeFormatting
+import com.github.noamm9.utils.ChatUtils.unformattedText
 import com.github.noamm9.utils.JsonUtils
 import com.github.noamm9.utils.NumbersUtils
 import com.github.noamm9.utils.items.ItemRarity
@@ -10,6 +11,7 @@ import com.github.noamm9.utils.items.ItemUtils.customData
 import com.github.noamm9.utils.items.ItemUtils.lore
 import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.render.RenderHelper.width
+import com.github.noamm9.utils.uppercaseFirst
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import net.minecraft.nbt.CompoundTag
@@ -50,10 +52,27 @@ object ItemValueCalculator {
 
     private val drillPartTags = listOf("drill_part_upgrade_module", "drill_part_engine", "drill_part_fuel_tank")
     private val rodPartTags = listOf("line", "hook", "sinker")
+    private val runeLoreRegex = Regex("^(?:◆ )?.+ Rune [IVX]+$")
+    private val nonAsciiRegex = Regex("[^\\u0020-\\u007E]")
+    private val multiSpaceRegex = Regex("\\s+")
 
     fun formatPrice(value: Long) = if (EstimatedItemValue.exactPrice.value) NumbersUtils.formatComma(value) else NumbersUtils.format(value)
 
-    fun calculate(stack: ItemStack): CalculatedValue? {
+    fun formatHeldName(stack: ItemStack): String {
+        val baseName = stack.hoverName.unformattedText
+            .replace(nonAsciiRegex, "")
+            .replace(multiSpaceRegex, " ")
+            .trim()
+        val sbId = stack.skyblockId
+        val stars = stack.customData.getIntOr("upgrade_level", stack.customData.getIntOr("dungeon_item_level", 0))
+        if (stars <= 0) return baseName
+
+        val isMasterCapable = ItemValueBreakdown.getCrimsonBaseId(sbId) == null && (ItemValueData.upgradeCosts[sbId]?.size ?: 5) <= 5
+        return if (isMasterCapable && stars > 5) "$baseName 5* (${(stars - 5).coerceAtMost(5)}M)"
+        else "$baseName $stars*"
+    }
+
+    fun calculate(stack: ItemStack, includeAllCosmetics: Boolean = false): CalculatedValue? {
         if (stack.isEmpty) return null
         val sbId = stack.skyblockId.ifEmpty { return null }
         val data = stack.customData
@@ -86,14 +105,14 @@ object ItemValueCalculator {
         }
 
         // Cosmetics
-        if (! EstimatedItemValue.ignoreHelmetSkins.value) totalPrice += addSkin(sbId, data, list)
-        if (! EstimatedItemValue.ignoreArmorDyes.value) {
+        if (includeAllCosmetics || ! EstimatedItemValue.ignoreHelmetSkins.value) totalPrice += addSkin(sbId, data, list)
+        if (includeAllCosmetics || ! EstimatedItemValue.ignoreArmorDyes.value) {
             data.getString("dye_item").getOrNull()?.takeIf(String::isNotEmpty)?.let {
                 totalPrice += addNamedSingle("§7Dye:", it, list)
             }
         }
-        if (! EstimatedItemValue.ignoreRunes.value && ! sbId.startsWith("RUNE") && sbId != "UNIQUE_RUNE") {
-            totalPrice += addRune(data, list)
+        if ((includeAllCosmetics || ! EstimatedItemValue.ignoreRunes.value) && ! sbId.startsWith("RUNE-") && sbId != "RUNE" && sbId != "UNIQUE_RUNE") {
+            totalPrice += addRune(stack, data, list)
         }
 
         // Counted modifiers
@@ -214,22 +233,26 @@ object ItemValueCalculator {
         return 0L
     }
 
-    private fun addRune(data: CompoundTag, list: MutableList<String>): Long {
+    private fun addRune(stack: ItemStack, data: CompoundTag, list: MutableList<String>): Long {
         val runes = data.getCompound("runes").getOrNull() ?: return 0L
-        val key = runes.keySet().singleOrNull() ?: return 0L
+        val key = runes.keySet().firstOrNull() ?: return 0L
         val lvl = runes.getIntOr(key, 0)
         if (lvl <= 0) return 0L
 
-        val upper = key.uppercase()
-        val candidates = listOf("RUNE-$upper-$lvl", "RUNE-${upper}_2-$lvl")
-        for (id in candidates) {
-            val price = ItemValueData.getPrice(id)
-            if (price > 0L) {
-                list.add("§7Rune: ${ItemValueData.getItemName(id)} §7(§6${formatPrice(price)}§7)")
-                return price
-            }
-        }
-        return 0L
+        val price = ItemValueData.getRunePrice(key, lvl)
+        if (price <= 0L) return 0L
+
+        val display = stack.lore.firstOrNull { runeLoreRegex.matches(it.removeFormatting().trim()) }
+            ?: "§d${key.uppercase().removeSuffix("_2").lowercase().split('_').joinToString(" ") { it.uppercaseFirst() }} Rune ${toRoman(lvl)}"
+        list.add("§7Rune: $display §7(§6${formatPrice(price)}§7)")
+        return price
+    }
+
+    private fun toRoman(lvl: Int) = when (lvl) {
+        1 -> "I"
+        2 -> "II"
+        3 -> "III"
+        else -> lvl.toString()
     }
 
     private fun addSingle(label: String, itemId: String, list: MutableList<String>): Long {

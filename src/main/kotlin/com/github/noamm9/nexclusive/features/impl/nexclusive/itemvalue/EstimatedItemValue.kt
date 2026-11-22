@@ -1,5 +1,6 @@
 package com.github.noamm9.nexclusive.features.impl.nexclusive.itemvalue
 
+import com.github.noamm9.commands.CommandBuilder
 import com.github.noamm9.config.types.DropdownSetting
 import com.github.noamm9.config.types.SliderSetting
 import com.github.noamm9.config.types.ToggleSetting
@@ -7,16 +8,24 @@ import com.github.noamm9.event.impl.ContainerEvent
 import com.github.noamm9.event.impl.ScreenEvent
 import com.github.noamm9.event.impl.WorldChangeEvent
 import com.github.noamm9.features.Feature
+import com.github.noamm9.init.types.ICommandProvider
 import com.github.noamm9.ui.clickgui.components.settings.Style
 import com.github.noamm9.ui.hud.HudElement
 import com.github.noamm9.ui.utils.Resolution
+import com.github.noamm9.utils.ChatUtils
+import com.github.noamm9.utils.ChatUtils.removeFormatting
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.NumbersUtils
+import com.github.noamm9.utils.ThreadUtils
+import com.github.noamm9.utils.items.ItemUtils.lore
+import com.github.noamm9.utils.items.ItemUtils.skyblockId
 import com.github.noamm9.utils.location.LocationUtils
 import com.github.noamm9.utils.location.WorldType
 import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawRect
 import com.github.noamm9.utils.render.Render2D.drawString
+import com.github.noamm9.utils.render.Render2D.highlight
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.client.gui.screens.inventory.ContainerScreen
@@ -25,9 +34,10 @@ import net.minecraft.world.item.ItemStack
 import java.awt.Color
 import java.util.IdentityHashMap
 
-object EstimatedItemValue: Feature("Displays an estimated value breakdown of SkyBlock items.", "Estimated Item Value") {
+object EstimatedItemValue: Feature("Displays an estimated value breakdown of SkyBlock items.", "Estimated Item Value"), ICommandProvider {
     val priceSource by DropdownSetting("Price Source", 0, listOf("Instant Buy / LBIN", "Buy Order / LBIN", "NPC Sell")).section("General")
     val onlyInAh by ToggleSetting("Only in AH").withDescription("Only displays the estimated value when inside Auction House menus.")
+    val ahHighlight by ToggleSetting("AH Highlight").withDescription("Highlights AH BIN items priced below their estimated value in green.")
     val disableInDungeons by ToggleSetting("Disable in Dungeons").withDescription("Hides the estimated value while inside Dungeons.")
     val disableInKuudra by ToggleSetting("Disable in Kuudra").withDescription("Hides the estimated value while inside Kuudra.")
     val exactPrice by ToggleSetting("Exact Price").withDescription("Shows exact coin amounts instead of compact numbers.")
@@ -41,6 +51,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
 
     private val cache = IdentityHashMap<ItemStack, ItemValueCalculator.CalculatedValue>()
     private val nullSet = IdentityHashMap<ItemStack, Boolean>()
+    private val ahPriceCache = IdentityHashMap<ItemStack, Long>()
 
     private var lastStack: ItemStack? = null
     private var lastValue: ItemValueCalculator.CalculatedValue? = null
@@ -49,6 +60,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
 
     private lateinit var valueHud: HudElement
     private val bgColor = Color(15, 15, 15, 210)
+    private val ahHighlightColor = Color.GREEN.withAlpha(100)
 
     private val exampleLines = listOf(
         "§eEstimated Item Value:",
@@ -95,32 +107,34 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
             val stack = event.stack
             if (stack.isEmpty) return@register
 
-            val hash = currentConfigHash()
-            if (hash != lastConfigHash) {
-                clearCache()
-                lastConfigHash = hash
-            }
-
+            syncCacheVersion()
             val value = if (stack === lastStack) lastValue
             else {
                 lastStack = stack
-                if (nullSet.containsKey(stack)) {
-                    lastValue = null
-                    null
-                } else {
-                    val computed = cache[stack] ?: ItemValueCalculator.calculate(stack)?.also {
-                        if (cache.size > 256) cache.clear()
-                        cache[stack] = it
-                    }
-                    if (computed == null) nullSet[stack] = true
-                    lastValue = computed
-                    computed
-                }
+                getOrCalculate(stack).also { lastValue = it }
             } ?: return@register
 
             lastRenderTime = System.currentTimeMillis()
             if (showTooltip.value && value.totalPrice > value.basePrice) {
                 event.lore.add(Component.literal("§e§lEstimated Value: §6§l${NumbersUtils.formatComma(value.totalPrice)} coins"))
+            }
+        }
+
+        register<ContainerEvent.Render.Slot.Pre> {
+            if (! ahHighlight.value) return@register
+            if (! LocationUtils.inSkyblock) return@register
+            if (! isAuctionScreen(event.screen)) return@register
+            if (event.slot.container == mc.player?.inventory) return@register
+            val stack = event.slot.item.takeUnless { it.isEmpty } ?: return@register
+
+            syncCacheVersion()
+            if (ahPriceCache.size > 256) ahPriceCache.clear()
+            val binPrice = ahPriceCache.getOrPut(stack) { getAhBinPrice(stack) ?: - 1L }
+            if (binPrice <= 0L) return@register
+
+            val value = getOrCalculate(stack) ?: return@register
+            if (value.totalPrice * stack.count > binPrice) {
+                event.slot.highlight(event.context, ahHighlightColor)
             }
         }
 
@@ -138,6 +152,12 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         register<WorldChangeEvent> { clearCache() }
     }
 
+    override fun CommandBuilder.command() {
+        setName("held", "holding")
+        description("Sends your held item and its estimated value in chat")
+        runs { sendHeldItemValue() }
+    }
+
     override fun onEnable() {
         super.onEnable()
         ItemValueData.ensureLoaded()
@@ -151,9 +171,59 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     fun clearCache() {
         cache.clear()
         nullSet.clear()
+        ahPriceCache.clear()
         lastStack = null
         lastValue = null
         lastRenderTime = 0L
+    }
+
+    private fun syncCacheVersion() {
+        val hash = currentConfigHash()
+        if (hash != lastConfigHash) {
+            clearCache()
+            lastConfigHash = hash
+        }
+    }
+
+    private fun getOrCalculate(stack: ItemStack): ItemValueCalculator.CalculatedValue? {
+        if (nullSet.containsKey(stack)) return null
+        return cache[stack] ?: ItemValueCalculator.calculate(stack).also { computed ->
+            if (computed == null) nullSet[stack] = true
+            else {
+                if (cache.size > 256) cache.clear()
+                cache[stack] = computed
+            }
+        }
+    }
+
+    private fun getAhBinPrice(stack: ItemStack): Long? {
+        val lore = stack.lore
+        for (i in lore.lastIndex downTo 0) {
+            val clean = lore[i].removeFormatting()
+            if (! clean.startsWith("Buy it now: ")) continue
+            return clean.substringAfter("Buy it now: ").substringBefore(" ").replace(",", "").toLongOrNull()
+        }
+        return null
+    }
+
+    private fun sendHeldItemValue() {
+        val stack = mc.player?.mainHandItem?.takeUnless { it.isEmpty }
+            ?: return ChatUtils.modMessage("&cYou are not holding an item.")
+        if (stack.skyblockId.isEmpty()) return ChatUtils.modMessage("&cYou are not holding a SkyBlock item.")
+
+        val snapshot = stack.copy()
+        ThreadUtils.async {
+            ItemValueData.preloadSync(snapshot)
+            mc.execute {
+                val calc = ItemValueCalculator.calculate(snapshot, includeAllCosmetics = true)
+                if (calc == null || calc.totalPrice <= 0L) {
+                    ChatUtils.modMessage("&cCould not calculate value for this item.")
+                    return@execute
+                }
+                val name = ItemValueCalculator.formatHeldName(snapshot)
+                ChatUtils.sendMessage("Held item : $name, Value : ${ItemValueCalculator.formatPrice(calc.totalPrice)}")
+            }
+        }
     }
 
     private fun shouldDisplay(screen: Screen?): Boolean {
