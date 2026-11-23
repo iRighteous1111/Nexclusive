@@ -15,6 +15,7 @@ import com.github.noamm9.ui.utils.Resolution
 import com.github.noamm9.utils.ChatUtils
 import com.github.noamm9.utils.ChatUtils.removeFormatting
 import com.github.noamm9.utils.ChatUtils.unformattedText
+import com.github.noamm9.utils.ColorUtils.lerp
 import com.github.noamm9.utils.ColorUtils.withAlpha
 import com.github.noamm9.utils.NumbersUtils
 import com.github.noamm9.utils.ThreadUtils
@@ -38,6 +39,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     val priceSource by DropdownSetting("Price Source", 0, listOf("Instant Buy / LBIN", "Buy Order / LBIN", "NPC Sell")).section("General")
     val onlyInAh by ToggleSetting("Only in AH").withDescription("Only displays the estimated value when inside Auction House menus.")
     val ahHighlight by ToggleSetting("AH Highlight").withDescription("Highlights AH BIN items priced below their estimated value in green.")
+    val highlightGradient by ToggleSetting("Highlight Gradient").showIf { ahHighlight.value }.withDescription("Scales green brightness based on how far below estimated value the listing is.")
     val disableInDungeons by ToggleSetting("Disable in Dungeons").withDescription("Hides the estimated value while inside Dungeons.")
     val disableInKuudra by ToggleSetting("Disable in Kuudra").withDescription("Hides the estimated value while inside Kuudra.")
     val exactPrice by ToggleSetting("Exact Price").withDescription("Shows exact coin amounts instead of compact numbers.")
@@ -61,6 +63,10 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     private lateinit var valueHud: HudElement
     private val bgColor = Color(15, 15, 15, 210)
     private val ahHighlightColor = Color.GREEN.withAlpha(100)
+    private val ahGradientPalette = Array(32) { i ->
+        val t = i / 31.0
+        Color(0, 75, 0).lerp(Color(110, 255, 110), t).withAlpha((95 + t * 55).toInt())
+    }
 
     private val exampleLines = listOf(
         "§eEstimated Item Value:",
@@ -133,8 +139,9 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
             if (binPrice <= 0L) return@register
 
             val value = getOrCalculate(stack) ?: return@register
-            if (value.totalPrice * stack.count > binPrice) {
-                event.slot.highlight(event.context, ahHighlightColor)
+            val estValue = value.totalPrice * stack.count
+            if (estValue > binPrice) {
+                event.slot.highlight(event.context, getAhHighlightColor(estValue, binPrice))
             }
         }
 
@@ -194,6 +201,12 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
                 cache[stack] = computed
             }
         }
+    }
+
+    private fun getAhHighlightColor(estValue: Long, binPrice: Long): Color {
+        if (! highlightGradient.value) return ahHighlightColor
+        val t = ((estValue - binPrice).toDouble() / estValue.toDouble() / 0.30).coerceIn(0.0, 1.0)
+        return ahGradientPalette[(t * ahGradientPalette.lastIndex).toInt()]
     }
 
     private fun getAhBinPrice(stack: ItemStack): Long? {
