@@ -27,6 +27,7 @@ import com.github.noamm9.utils.render.Render2D.drawBorder
 import com.github.noamm9.utils.render.Render2D.drawRect
 import com.github.noamm9.utils.render.Render2D.drawString
 import com.github.noamm9.utils.render.Render2D.highlight
+import com.github.noamm9.utils.render.RenderHelper.width
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import net.minecraft.client.gui.screens.inventory.ContainerScreen
@@ -39,7 +40,9 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     val priceSource by DropdownSetting("Price Source", 0, listOf("Instant Buy / LBIN", "Buy Order / LBIN", "NPC Sell")).section("General")
     val onlyInAh by ToggleSetting("Only in AH").withDescription("Only displays the estimated value when inside Auction House menus.")
     val ahHighlight by ToggleSetting("AH Highlight").withDescription("Highlights AH BIN items priced below their estimated value in green.")
-    val highlightGradient by ToggleSetting("Highlight Gradient").showIf { ahHighlight.value }.withDescription("Scales green brightness based on how far below estimated value the listing is.")
+    val highlightGradient by ToggleSetting("Highlight Gradient").showIf { ahHighlight.value && ! lowballGradient.value }.withDescription("Scales green brightness based on how far below estimated value the listing is.")
+    val lowballGradient by ToggleSetting("Lowball Gradient").showIf { ahHighlight.value }.withDescription("Compares identical/close AH listings by price instead of normal AH Highlight.")
+    val lowballGap by SliderSetting("Lowball Gap", 20, 5, 80, 1, "%").showIf { ahHighlight.value && lowballGradient.value }.withDescription("Minimum % gap between cheapest and 2nd cheapest identical listing to show a $ badge.")
     val disableInDungeons by ToggleSetting("Disable in Dungeons").withDescription("Hides the estimated value while inside Dungeons.")
     val disableInKuudra by ToggleSetting("Disable in Kuudra").withDescription("Hides the estimated value while inside Kuudra.")
     val exactPrice by ToggleSetting("Exact Price").withDescription("Shows exact coin amounts instead of compact numbers.")
@@ -63,7 +66,8 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     private lateinit var valueHud: HudElement
     private val bgColor = Color(15, 15, 15, 210)
     private val ahHighlightColor = Color.GREEN.withAlpha(100)
-    private val ahGradientPalette = Array(32) { i ->
+    private const val DEAL_BADGE = "§a§l$"
+    internal val ahGradientPalette = Array(32) { i ->
         val t = i / 31.0
         Color(0, 75, 0).lerp(Color(110, 255, 110), t).withAlpha((95 + t * 55).toInt())
     }
@@ -109,6 +113,9 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         }
 
         register<ContainerEvent.Render.Tooltip> {
+            if (ahHighlight.value && lowballGradient.value && LocationUtils.inSkyblock && isAuctionScreen(event.screen)) {
+                LowballTracker.onHover(event.stack)
+            }
             if (! shouldDisplay(event.screen)) return@register
             val stack = event.stack
             if (stack.isEmpty) return@register
@@ -129,11 +136,19 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         register<ContainerEvent.Render.Slot.Pre> {
             if (! ahHighlight.value) return@register
             if (! LocationUtils.inSkyblock) return@register
-            if (! isAuctionScreen(event.screen)) return@register
+            val screen = event.screen as? ContainerScreen ?: return@register
+            if (! isAuctionScreen(screen)) return@register
             if (event.slot.container == mc.player?.inventory) return@register
-            val stack = event.slot.item.takeUnless { it.isEmpty } ?: return@register
 
             syncCacheVersion()
+            if (lowballGradient.value) {
+                if (event.slot.index == 0) LowballTracker.syncScreen(screen, lastConfigHash)
+                val stack = event.slot.item.takeUnless { it.isEmpty } ?: return@register
+                LowballTracker.getSlotHighlight(stack)?.let { event.slot.highlight(event.context, it) }
+                return@register
+            }
+
+            val stack = event.slot.item.takeUnless { it.isEmpty } ?: return@register
             if (ahPriceCache.size > 256) ahPriceCache.clear()
             val binPrice = ahPriceCache.getOrPut(stack) { getAhBinPrice(stack) ?: - 1L }
             if (binPrice <= 0L) return@register
@@ -143,6 +158,19 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
             if (estValue > binPrice) {
                 event.slot.highlight(event.context, getAhHighlightColor(estValue, binPrice))
             }
+        }
+
+        register<ContainerEvent.Render.Slot.Post> {
+            if (! ahHighlight.value || ! lowballGradient.value) return@register
+            if (! LocationUtils.inSkyblock) return@register
+            if (! isAuctionScreen(event.screen)) return@register
+            if (event.slot.container == mc.player?.inventory) return@register
+            val stack = event.slot.item.takeUnless { it.isEmpty } ?: return@register
+            if (! LowballTracker.isDeal(stack)) return@register
+
+            event.context.pose().translate(event.slot.x.toFloat(), event.slot.y.toFloat())
+            event.context.drawString(DEAL_BADGE, 16f - DEAL_BADGE.width() * 0.65f, 0f, scale = 0.65f)
+            event.context.pose().translate(- event.slot.x.toFloat(), - event.slot.y.toFloat())
         }
 
         register<ScreenEvent.PostRender> {
@@ -155,8 +183,14 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
             Resolution.pop(event.context)
         }
 
-        register<ContainerEvent.Close> { clearCache() }
-        register<WorldChangeEvent> { clearCache() }
+        register<ContainerEvent.Close> {
+            clearCache()
+            LowballTracker.clearHover()
+        }
+        register<WorldChangeEvent> {
+            clearCache()
+            LowballTracker.reset()
+        }
     }
 
     override fun CommandBuilder.command() {
@@ -173,6 +207,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     override fun onDisable() {
         super.onDisable()
         clearCache()
+        LowballTracker.reset()
     }
 
     fun clearCache() {
@@ -209,7 +244,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         return ahGradientPalette[(t * ahGradientPalette.lastIndex).toInt()]
     }
 
-    private fun getAhBinPrice(stack: ItemStack): Long? {
+    internal fun getAhBinPrice(stack: ItemStack): Long? {
         val lore = stack.lore
         for (i in lore.lastIndex downTo 0) {
             val clean = lore[i].removeFormatting()
@@ -261,6 +296,8 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         h = 31 * h + if (ignoreHelmetSkins.value) 1 else 0
         h = 31 * h + if (ignoreArmorDyes.value) 1 else 0
         h = 31 * h + if (ignoreRunes.value) 1 else 0
+        h = 31 * h + if (lowballGradient.value) 1 else 0
+        h = 31 * h + lowballGap.value
         h = 31 * h + ItemValueData.dataVersion.get()
         return h
     }

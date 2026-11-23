@@ -89,11 +89,16 @@ object ItemValueBreakdown {
         return price
     }
 
-    fun addGemstones(sbId: String, data: CompoundTag, list: MutableList<String>): Long {
-        val gems = data.getCompound("gems").getOrNull() ?: return 0L
-        if (gems.isEmpty) return 0L
+    class GemstoneSummary(
+        val unlockedSlotKeys: Set<String>,
+        val slotCost: Long,
+        val appliedCounts: Map<String, Int>,
+        val appliedCost: Long
+    )
 
-        var total = 0L
+    fun collectGemstones(sbId: String, data: CompoundTag): GemstoneSummary? {
+        val gems = data.getCompound("gems").getOrNull() ?: return null
+        if (gems.isEmpty) return null
 
         val unlockedSlots = LinkedHashSet<String>()
         gems.getList("unlocked_slots").getOrNull()?.forEach { el ->
@@ -116,12 +121,11 @@ object ItemValueBreakdown {
             counts[gemId] = (counts[gemId] ?: 0) + 1
         }
 
-        // Unlocked slot costs
+        val matchedKeys = LinkedHashSet<String>(unlockedSlots.size)
+        var slotTotal = 0L
         val slotMap = ItemValueData.gemstoneSlotCosts[sbId]
             ?: ItemValueData.gemstoneSlotCosts[sbId.removePrefix("STARRED_")]
         if (slotMap != null && unlockedSlots.isNotEmpty()) {
-            val matchedKeys = HashSet<String>(unlockedSlots.size)
-            var slotTotal = 0L
             for (rawKey in unlockedSlots) {
                 val resolvedKey = when {
                     rawKey in slotMap -> rawKey
@@ -133,13 +137,27 @@ object ItemValueBreakdown {
                     slotTotal += if (cost.type == "COINS") cost.amount else ItemValueData.getPrice(cost.itemId) * cost.amount
                 }
             }
-            if (slotTotal > 0L) {
-                list.add("§7Gemstone Slots: §e${matchedKeys.size} §7(§6${ItemValueCalculator.formatPrice(slotTotal)}§7)")
-                total += slotTotal
-            }
         }
 
+        var appliedTotal = 0L
         for ((gemId, count) in counts) {
+            val price = ItemValueData.getPrice(gemId) * count
+            if (price > 0L) appliedTotal += price
+        }
+
+        return GemstoneSummary(matchedKeys, slotTotal, counts, appliedTotal)
+    }
+
+    fun addGemstones(sbId: String, data: CompoundTag, list: MutableList<String>): Long {
+        val summary = collectGemstones(sbId, data) ?: return 0L
+        var total = 0L
+
+        if (summary.slotCost > 0L) {
+            list.add("§7Gemstone Slots: §e${summary.unlockedSlotKeys.size} §7(§6${ItemValueCalculator.formatPrice(summary.slotCost)}§7)")
+            total += summary.slotCost
+        }
+
+        for ((gemId, count) in summary.appliedCounts) {
             val price = ItemValueData.getPrice(gemId) * count
             if (price <= 0L) continue
             total += price
@@ -179,7 +197,7 @@ object ItemValueBreakdown {
         return total
     }
 
-    private fun getEnchantPrice(name: String, level: Int): Long {
+    fun getEnchantPrice(name: String, level: Int): Long {
         ItemValueData.endcapEnchants[name]?.let { (reqLvl, endcapItem) ->
             if (level >= reqLvl) return getEnchantPrice(name, reqLvl - 1) + ItemValueData.getPrice(endcapItem)
         }
