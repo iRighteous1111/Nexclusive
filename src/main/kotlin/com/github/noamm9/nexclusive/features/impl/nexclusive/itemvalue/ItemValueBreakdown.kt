@@ -95,27 +95,12 @@ object ItemValueBreakdown {
 
         var total = 0L
 
-        // Unlocked slot costs
-        val unlocked = gems.getList("unlocked_slots").getOrNull()
-        val slotMap = ItemValueData.gemstoneSlotCosts[sbId]
-        if (unlocked != null && slotMap != null && ! unlocked.isEmpty()) {
-            var slotTotal = 0L
-            var unlockedCount = 0
-            for (el in unlocked) {
-                val slotKey = (el as? StringTag)?.value() ?: continue
-                val costs = slotMap[slotKey] ?: continue
-                unlockedCount++
-                for (cost in costs) {
-                    slotTotal += if (cost.type == "COINS") cost.amount else ItemValueData.getPrice(cost.itemId) * cost.amount
-                }
-            }
-            if (slotTotal > 0L) {
-                list.add("§7Gemstone Slots: §e$unlockedCount §7(§6${ItemValueCalculator.formatPrice(slotTotal)}§7)")
-                total += slotTotal
-            }
+        val unlockedSlots = LinkedHashSet<String>()
+        gems.getList("unlocked_slots").getOrNull()?.forEach { el ->
+            (el as? StringTag)?.value()?.let(unlockedSlots::add)
         }
 
-        // Applied gemstones
+        // Applied gemstones & inferred unlocked slots (older items omit `unlocked_slots`)
         val counts = LinkedHashMap<String, Int>()
         for (key in gems.keySet()) {
             if (key == "unlocked_slots" || key.endsWith("_gem")) continue
@@ -124,9 +109,34 @@ object ItemValueBreakdown {
                 ?: continue
             if (quality.isEmpty()) continue
 
+            unlockedSlots.add(key)
+
             val type = gems.getString("${key}_gem").getOrNull() ?: key.substringBeforeLast('_')
             val gemId = "${quality.uppercase()}_${type.uppercase()}_GEM"
             counts[gemId] = (counts[gemId] ?: 0) + 1
+        }
+
+        // Unlocked slot costs
+        val slotMap = ItemValueData.gemstoneSlotCosts[sbId]
+            ?: ItemValueData.gemstoneSlotCosts[sbId.removePrefix("STARRED_")]
+        if (slotMap != null && unlockedSlots.isNotEmpty()) {
+            val matchedKeys = HashSet<String>(unlockedSlots.size)
+            var slotTotal = 0L
+            for (rawKey in unlockedSlots) {
+                val resolvedKey = when {
+                    rawKey in slotMap -> rawKey
+                    "${rawKey}_0" in slotMap -> "${rawKey}_0"
+                    else -> continue
+                }
+                if (! matchedKeys.add(resolvedKey)) continue
+                for (cost in slotMap[resolvedKey] ?: continue) {
+                    slotTotal += if (cost.type == "COINS") cost.amount else ItemValueData.getPrice(cost.itemId) * cost.amount
+                }
+            }
+            if (slotTotal > 0L) {
+                list.add("§7Gemstone Slots: §e${matchedKeys.size} §7(§6${ItemValueCalculator.formatPrice(slotTotal)}§7)")
+                total += slotTotal
+            }
         }
 
         for ((gemId, count) in counts) {
