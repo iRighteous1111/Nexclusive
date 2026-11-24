@@ -42,7 +42,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
     val ahHighlight by ToggleSetting("AH Highlight").withDescription("Highlights AH BIN items priced below their estimated value in green.")
     val highlightGradient by ToggleSetting("Highlight Gradient").showIf { ahHighlight.value && ! lowballGradient.value }.withDescription("Scales green brightness based on how far below estimated value the listing is.")
     val lowballGradient by ToggleSetting("Lowball Gradient").showIf { ahHighlight.value }.withDescription("Compares identical/close AH listings by price instead of normal AH Highlight.")
-    val lowballGap by SliderSetting("Lowball Gap", 20, 5, 80, 1, "%").showIf { ahHighlight.value && lowballGradient.value }.withDescription("Minimum % gap between cheapest and 2nd cheapest identical listing to show a $ badge.")
+    val lowballGap by SliderSetting("Lowball Gap", 20, 5, 80, 1, "%").showIf { ahHighlight.value && lowballGradient.value }.withDescription("Minimum % discount below both the 2nd cheapest identical listing and estimated value to show a $ badge.")
     val disableInDungeons by ToggleSetting("Disable in Dungeons").withDescription("Hides the estimated value while inside Dungeons.")
     val disableInKuudra by ToggleSetting("Disable in Kuudra").withDescription("Hides the estimated value while inside Kuudra.")
     val exactPrice by ToggleSetting("Exact Price").withDescription("Shows exact coin amounts instead of compact numbers.")
@@ -227,7 +227,7 @@ object EstimatedItemValue: Feature("Displays an estimated value breakdown of Sky
         }
     }
 
-    private fun getOrCalculate(stack: ItemStack): ItemValueCalculator.CalculatedValue? {
+    internal fun getOrCalculate(stack: ItemStack): ItemValueCalculator.CalculatedValue? {
         if (nullSet.containsKey(stack)) return null
         return cache[stack] ?: ItemValueCalculator.calculate(stack).also { computed ->
             if (computed == null) nullSet[stack] = true

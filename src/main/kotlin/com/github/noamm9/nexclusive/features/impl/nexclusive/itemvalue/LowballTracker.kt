@@ -276,7 +276,11 @@ object LowballTracker {
 
             if (count >= 2 && listing.binPrice == cheapest && second > cheapest) {
                 val gapPct = ((second - cheapest).toDouble() / second.toDouble()) * 100.0
-                if (gapPct >= threshold) dealStacks[stack] = true
+                if (gapPct < threshold) continue
+                val estValue = (EstimatedItemValue.getOrCalculate(stack)?.totalPrice ?: 0L) * stack.count
+                if (estValue > cheapest && ((estValue - cheapest).toDouble() / estValue.toDouble()) * 100.0 >= threshold) {
+                    dealStacks[stack] = true
+                }
             }
         }
     }
